@@ -67,4 +67,35 @@ describe("checkResult", () => {
   it("rejects a result without parts", () => {
     expect(checkResult({ parts: [] }, BED).errors).toEqual(["Generator produced no parts"]);
   });
+
+  it("checks an assembly as one group: only the group must rest on the bed", () => {
+    const plate = { ...boxPart("plate", [40, 20, 3]), assembly: "tag" };
+    const text = { ...boxPart("text", [30, 10, 1], 3), assembly: "tag" };
+    expect(checkResult({ parts: [plate, text] }, BED)).toEqual({ errors: [], warnings: [] });
+    const floating = { ...boxPart("text", [30, 10, 1], 3), assembly: "label" };
+    expect(checkResult({ parts: [plate, floating] }, BED).warnings).toEqual([
+      'Assembly "label" does not rest on the bed (lowest point at z = 3 mm)',
+    ]);
+  });
+
+  it("warns when an assembly as a whole exceeds the bed", () => {
+    const left = { ...boxPart("a", [150, 10, 1]), assembly: "pair" };
+    const right = { ...boxPart("b", [150, 10, 1]), assembly: "pair" };
+    right.mesh.positions = right.mesh.positions.map((v, i) => (i % 3 === 0 ? v + 100 : v));
+    expect(checkResult({ parts: [left, right] }, BED).warnings).toEqual([
+      'Assembly "pair" (250 x 10 x 1 mm) does not fit the 200 x 100 x 50 mm build volume',
+    ]);
+  });
+
+  it("rejects assemblies whose parts disagree on quantity, and unsafe assembly names", () => {
+    const a = { ...boxPart("a", [1, 1, 1]), assembly: "g", quantity: 2 };
+    const b = { ...boxPart("b", [1, 1, 1]), assembly: "g" };
+    expect(checkResult({ parts: [a, b] }, BED).errors).toEqual([
+      'Assembly "g": all parts of an assembly must have the same quantity',
+    ]);
+    const bad = { ...boxPart("c", [1, 1, 1]), assembly: "my tag" };
+    expect(checkResult({ parts: [bad] }, BED).errors).toEqual([
+      'Part "c": assembly must match [A-Za-z0-9_-]+',
+    ]);
+  });
 });

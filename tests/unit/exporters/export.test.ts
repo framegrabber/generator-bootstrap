@@ -26,7 +26,9 @@ describe("modelXml", () => {
     expect(count(xml, "object")).toBe(2);
     expect(count(xml, "vertex")).toBe(6);
     expect(count(xml, "triangle")).toBe(2);
-    const offsets = [...xml.matchAll(/transform="1 0 0 0 1 0 0 0 1 ([\d.-]+) /g)].map((m) => Number(m[1]));
+    const offsets = [...xml.matchAll(/transform="1 0 0 0 1 0 0 0 1 ([\d.-]+) /g)].map((m) =>
+      Number(m[1]),
+    );
     expect(offsets).toEqual([0, 15, 30, 45]);
   });
 
@@ -37,9 +39,25 @@ describe("modelXml", () => {
     expect(xml).toContain('<object id="3" type="model" name="red" pid="1" pindex="0">');
   });
 
+  it("wraps an assembly's parts in one component object placed once per copy", () => {
+    const xml = modelXml(
+      [
+        part("plate", { assembly: "tag", color: "#ffffff", quantity: 2 }),
+        part("text", { assembly: "tag", color: "#000000", quantity: 2 }),
+        part("loose"),
+      ],
+      "App",
+    );
+    expect(xml).toContain(
+      '<object id="5" type="model" name="tag"><components><component objectid="2"/><component objectid="3"/></components></object>',
+    );
+    const items = [...xml.matchAll(/<item objectid="(\d+)"/g)].map((m) => Number(m[1]));
+    expect(items).toEqual([5, 5, 4]);
+  });
+
   it("escapes XML in names", () => {
     expect(modelXml([part("a")], 'A&B "app"')).toContain(
-      "<metadata name=\"Application\">A&amp;B &quot;app&quot;</metadata>",
+      '<metadata name="Application">A&amp;B &quot;app&quot;</metadata>',
     );
   });
 });
@@ -60,6 +78,22 @@ describe("exportEntries", () => {
     const readme = String(entries.at(-1)!.data);
     expect(readme).toContain("  tag x 2");
     expect(readme).toContain("  careful");
+  });
+
+  it("puts each assembly's STL files in one folder, quantity on the folder", async () => {
+    const parts = [
+      part("plate", { assembly: "tag", quantity: 3 }),
+      part("text", { assembly: "tag", quantity: 3 }),
+      part("ring"),
+    ];
+    const entries = await exportEntries({ ...input, result: { parts }, format: "stl" });
+    expect(entries.map((e) => e.path)).toEqual([
+      "stl/01_tag_x3/plate.stl",
+      "stl/01_tag_x3/text.stl",
+      "stl/02_ring.stl",
+      "README.txt",
+    ]);
+    expect(String(entries.at(-1)!.data)).toContain("  tag/plate x 3");
   });
 
   it("packs a valid 3MF package for the 3mf format", async () => {

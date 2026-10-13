@@ -30,15 +30,34 @@ export type NumberParam = ParamBase & {
   step?: number;
 };
 export type BooleanParam = ParamBase & { kind: "boolean"; default: boolean };
-export type TextParam = ParamBase & { kind: "text"; default: string; maxLength?: number };
+export type TextParam = ParamBase & {
+  kind: "text";
+  default: string;
+  maxLength?: number;
+  /** Renders a textarea; values may contain "\n". */
+  multiline?: boolean;
+};
 export type SelectParam = ParamBase & {
   kind: "select";
   default: string;
   options: readonly { value: string; label: string }[];
 };
+/** A colour as `#rrggbb` (lowercase or uppercase hex). */
+export type ColorParam = ParamBase & { kind: "color"; default: string };
+/**
+ * A font reference: `bundled:<id>` for a font in `src/fonts/bundled.ts`, or `upload:<sha256>`
+ * for a font the user stored in this browser. Load it in `build.ts` with `loadFont`.
+ */
+export type FontParam = ParamBase & { kind: "font"; default: string };
 
 /** Declarative parameter description; the UI form and validation are generated from it. */
-export type ParamSpec = NumberParam | BooleanParam | TextParam | SelectParam;
+export type ParamSpec =
+  | NumberParam
+  | BooleanParam
+  | TextParam
+  | SelectParam
+  | ColorParam
+  | FontParam;
 
 export type ValidationIssue = {
   /** Parameter key the issue belongs to, or null for a whole-generator issue. */
@@ -50,7 +69,7 @@ export type ValidationIssue = {
 export type Mesh = { positions: Float32Array; indices: Uint32Array };
 
 /**
- * One printable body, already in print orientation: Z-up, resting on z = 0.
+ * One printable body, already in print orientation: Z-up. A standalone part rests on z = 0.
  * `name` becomes the file name stem, so keep it [A-Za-z0-9_-] and unique within a result.
  */
 export type Part = {
@@ -60,6 +79,13 @@ export type Part = {
   quantity?: number;
   /** `#rrggbb`; used by the preview and as the 3MF display colour. */
   color?: string;
+  /**
+   * Parts sharing an assembly name are printed together in place, e.g. a plate and its
+   * second-colour text. They keep their coordinates, are checked against the bed as one group
+   * (the group rests on z = 0), share one quantity, and export as one multi-part 3MF object and
+   * one STL folder. Same naming rules as `name`.
+   */
+  assembly?: string;
 };
 
 export type ExtraFile = { path: string; content: string };

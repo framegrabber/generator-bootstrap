@@ -55,6 +55,30 @@ describe("matchesSpec", () => {
   });
 });
 
+describe("matchesSpec for color, font, and multiline text", () => {
+  const color = { kind: "color", key: "c", label: "C", default: "#000000" } as const;
+  const font = { kind: "font", key: "f", label: "F", default: "bundled:inter" } as const;
+  const line = { kind: "text", key: "t", label: "T", default: "" } as const;
+
+  it("accepts only #rrggbb colours", () => {
+    expect(matchesSpec(color, "#a1B2c3")).toBe(true);
+    expect(matchesSpec(color, "#abc")).toBe(false);
+    expect(matchesSpec(color, "red")).toBe(false);
+  });
+
+  it("accepts known bundled fonts and well-formed upload hashes", () => {
+    expect(matchesSpec(font, "bundled:inter")).toBe(true);
+    expect(matchesSpec(font, "bundled:comic-sans")).toBe(false);
+    expect(matchesSpec(font, `upload:${"ab".repeat(32)}`)).toBe(true);
+    expect(matchesSpec(font, "upload:abc")).toBe(false);
+  });
+
+  it("rejects line breaks unless the text param is multiline", () => {
+    expect(matchesSpec(line, "a\nb")).toBe(false);
+    expect(matchesSpec({ ...line, multiline: true }, "a\nb")).toBe(true);
+  });
+});
+
 describe("validateParams", () => {
   it("reports wrong-typed values and skips the generator's validate", () => {
     const validate = (): never => {

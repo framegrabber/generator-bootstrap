@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { printGroups } from "../../core/assembly";
 import { boundsOf } from "../../core/bounds";
 import type { Part } from "../../core/types";
 
@@ -33,8 +34,10 @@ const escapeXml = (text: string) => text.replace(/[&<>"']/g, (ch) => XML_ESCAPES
 const num = (value: number) => String(Math.round(value * 1e6) / 1e6 || 0);
 
 /**
- * 3MF core-spec model XML: one object per part, one build item per copy. Copies are laid out in
- * a row along X; parts with `color` get a base material with that display colour.
+ * 3MF core-spec model XML. Every part is a mesh object; parts with `color` get a base material
+ * with that display colour. An assembly becomes one more object whose components are its parts
+ * at identity transforms, so slicers load it as one multi-part (multi-colour) object. The build
+ * has one item per copy of each print group, laid out in a row along X.
  */
 export function modelXml(parts: readonly Part[], appName: string): string {
   const out: string[] = [
@@ -45,7 +48,7 @@ export function modelXml(parts: readonly Part[], appName: string): string {
     "<resources>",
   ];
 
-  // Material group id 1; objects start at 2.
+  // Material group id 1; part objects start at 2, assembly objects follow them.
   const colored = parts.filter((p) => p.color !== undefined);
   if (colored.length > 0) {
     out.push('<basematerials id="1">');
@@ -55,10 +58,13 @@ export function modelXml(parts: readonly Part[], appName: string): string {
     out.push("</basematerials>");
   }
 
+  const partId = new Map<Part, number>();
   parts.forEach((part, index) => {
+    const id = index + 2;
+    partId.set(part, id);
     const material = colored.indexOf(part);
     const pid = material >= 0 ? ` pid="1" pindex="${material}"` : "";
-    out.push(`<object id="${index + 2}" type="model" name="${escapeXml(part.name)}"${pid}>`);
+    out.push(`<object id="${id}" type="model" name="${escapeXml(part.name)}"${pid}>`);
     out.push("<mesh><vertices>");
     const p = part.mesh.positions;
     for (let i = 0; i < p.length; i += 3) {
@@ -71,20 +77,30 @@ export function modelXml(parts: readonly Part[], appName: string): string {
     }
     out.push("</triangles></mesh></object>");
   });
+
+  let nextId = parts.length + 2;
+  const items = printGroups(parts).map((group) => {
+    if (!group.isAssembly) return { group, id: partId.get(group.parts[0])! };
+    const id = nextId++;
+    out.push(`<object id="${id}" type="model" name="${escapeXml(group.name)}"><components>`);
+    for (const part of group.parts) out.push(`<component objectid="${partId.get(part)}"/>`);
+    out.push("</components></object>");
+    return { group, id };
+  });
   out.push("</resources><build>");
 
   let cursor = 0;
-  parts.forEach((part, index) => {
-    const bounds = boundsOf([part.mesh]);
-    if (!bounds) return;
+  for (const { group, id } of items) {
+    const bounds = boundsOf(group.parts.map((p) => p.mesh));
+    if (!bounds) continue;
     const width = bounds.max[0] - bounds.min[0];
-    for (let copy = 0; copy < (part.quantity ?? 1); copy++) {
+    for (let copy = 0; copy < group.quantity; copy++) {
       const tx = num(cursor - bounds.min[0]);
       const ty = num(-bounds.min[1]);
-      out.push(`<item objectid="${index + 2}" transform="1 0 0 0 1 0 0 0 1 ${tx} ${ty} 0"/>`);
+      out.push(`<item objectid="${id}" transform="1 0 0 0 1 0 0 0 1 ${tx} ${ty} 0"/>`);
       cursor += width + COPY_GAP_MM;
     }
-  });
+  }
   out.push("</build></model>");
   return out.join("");
 }

@@ -1,3 +1,4 @@
+import { parseFontRef } from "../fonts/bundled";
 import type {
   GeneratorDef,
   ParamSpec,
@@ -5,6 +6,8 @@ import type {
   Params,
   ValidationIssue,
 } from "./types";
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 export function defaultParams(specs: readonly ParamSpec[]): Params {
   const values: Params = {};
@@ -39,10 +42,16 @@ export function matchesSpec(spec: ParamSpec, value: unknown): value is ParamValu
       return typeof value === "boolean";
     case "text":
       return (
-        typeof value === "string" && (spec.maxLength === undefined || value.length <= spec.maxLength)
+        typeof value === "string" &&
+        (spec.maxLength === undefined || value.length <= spec.maxLength) &&
+        (spec.multiline === true || !value.includes("\n"))
       );
     case "select":
       return typeof value === "string" && spec.options.some((o) => o.value === value);
+    case "color":
+      return typeof value === "string" && HEX_COLOR.test(value);
+    case "font":
+      return typeof value === "string" && parseFontRef(value) !== null;
   }
 }
 

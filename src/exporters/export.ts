@@ -1,4 +1,5 @@
 import { APP } from "../app-config";
+import { printGroups } from "../core/assembly";
 import type { GeneratorDef, GeneratorResult, Params, Part } from "../core/types";
 import { sanitizeSegment } from "./filename";
 import { meshToBinaryStl } from "./formats/stl";
@@ -17,12 +18,18 @@ export type ExportFormat = {
 export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormat> = {
   stl: {
     label: "STL (one file per part)",
-    // STL has no notion of copies, so the file name carries the quantity.
+    // STL has no notion of copies, so the name carries the quantity. An assembly gets a folder
+    // whose files share coordinates, so a slicer lines them up when they are loaded together.
     files: async (parts) =>
-      parts.map((part, index) => {
-        const copies = (part.quantity ?? 1) > 1 ? `_x${part.quantity}` : "";
-        const stem = `${String(index + 1).padStart(2, "0")}_${sanitizeSegment(part.name)}${copies}`;
-        return { path: `stl/${stem}.stl`, data: meshToBinaryStl(part.mesh, `${APP.name} ${part.name}`) };
+      printGroups(parts).flatMap((group, index) => {
+        const copies = group.quantity > 1 ? `_x${group.quantity}` : "";
+        const stem = `${String(index + 1).padStart(2, "0")}_${sanitizeSegment(group.name)}${copies}`;
+        const stl = (part: Part) => meshToBinaryStl(part.mesh, `${APP.name} ${part.name}`);
+        if (!group.isAssembly) return [{ path: `stl/${stem}.stl`, data: stl(group.parts[0]) }];
+        return group.parts.map((part) => ({
+          path: `stl/${stem}/${sanitizeSegment(part.name)}.stl`,
+          data: stl(part),
+        }));
       }),
   },
   "3mf": {
@@ -58,7 +65,10 @@ export async function exportEntries({
       generatorName: def.name,
       params: def.params,
       values,
-      parts: result.parts.map((p) => ({ name: p.name, quantity: p.quantity ?? 1 })),
+      parts: result.parts.map((p) => ({
+        name: p.assembly ? `${p.assembly}/${p.name}` : p.name,
+        quantity: p.quantity ?? 1,
+      })),
       reproduceUrl,
       files: entries.map((e) => e.path),
       warnings: result.warnings ?? [],
