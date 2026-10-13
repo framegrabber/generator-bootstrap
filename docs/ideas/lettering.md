@@ -8,9 +8,9 @@ Port lightbox's font pipeline (`src/geometry/flatten.ts`, `scale.ts`, `layout.ts
 
 One font ships with the app: **Inter Regular** (SIL OFL 1.1, static weight, legible at small sizes, already the lightbox test fixture). Users add others by upload. Fonts are a param kind (`kind: "font"`) whose value is a string: `bundled:inter` or `upload:<sha256>`. The worker resolves bytes itself, the bundled font through a Vite asset URL and uploads from IndexedDB, and caches parsed fonts. Because the value is a plain string, URL persistence, settings files, migration, and the README work unchanged, and opentype.js stays out of the main bundle.
 
-Text colour is a user param, so the base gains a `color` param kind (value `#rrggbb`, rendered as a native colour input). The generator passes it to the text part's `color`, which the preview and the 3MF export already use.
+Text colour is a user param, so the base gains a `color` param kind (value `#rrggbb`, rendered as a native colour input, no preset swatches). The generator passes it to the text part's `color`, which the preview and the 3MF export already use.
 
-Coloured text has to stay in place on the plate, so `Part` gains an optional `assembly` name. Parts in one assembly keep their coordinates, are bed-checked as a group (the group, not each part, must rest on z = 0), and export as one multi-part object in 3MF; in STL they share coordinates.
+Coloured text has to stay in place on the plate, so `Part` gains an optional `assembly` name. Parts in one assembly keep their coordinates, are bed-checked as a group (the group, not each part, must rest on z = 0), and export as one multi-part object in 3MF. In STL, each assembly gets its own folder, `stl/NN_<assembly>/<part>.stl`, with all its files sharing coordinates so a slicer lines them up on import; parts without an assembly keep `stl/NN_<name>[_xQ].stl`.
 
 The first consumer is a name tag/keychain generator with three text modes:
 
@@ -34,7 +34,7 @@ Mode is a `select`; each mode's params use `visibleWhen`. `validate` keeps inlay
 In:
 - `textOutline` helper (flatten, cap-height scale, kerning, multi-line, alignment) with tests on Inter.
 - Param kinds `font` and `color`; multi-line `text` param (`multiline: true`); font picker for the bundled font plus uploads.
-- `assembly` on `Part`; group-aware `checkResult`; 3MF writes each assembly as one object with per-part colours; preview unchanged (parts already render in place).
+- `assembly` on `Part`; group-aware `checkResult`; 3MF writes each assembly as one object with per-part colours; STL writes each assembly into its own folder; preview unchanged (parts already render in place).
 - Name tag generator: text, font, cap height, alignment, plate padding/corner radius/thickness, mode (embedded / raised / cut out) with its depth or height, text colour, plate colour, keyring hole.
 - Upload library: port lightbox's IndexedDB index (`font:<sha>` bytes plus `font-index`), upload and remove in the picker, clear worker error when an `upload:` font is missing on this device.
 
@@ -49,5 +49,4 @@ In:
 - Per-glyph fallback for characters the font lacks: render `.notdef` and leave it.
 
 ## Open Questions
-- Should `assembly` also drive the STL export (e.g. one subfolder per assembly), or are shared coordinates enough?
-- Does the colour param need preset swatches (common filament colours), or is a free colour input enough?
+- None blocking. Revisit the Not Doing list after the first physical prints.
