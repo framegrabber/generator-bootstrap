@@ -5,6 +5,11 @@ import { canExport, startBuildSync, useBuild } from "../../../src/state/build-st
 import { useParams } from "../../../src/state/params-store";
 import { defaultSnapshot } from "../../../src/state/snapshot";
 
+// vi.mock is hoisted above this file's imports, so the factory loads the fixture dynamically.
+vi.mock(import("../../../src/generators"), async (importOriginal) =>
+  (await import("../fixtures")).fixtureRegistry(await importOriginal()),
+);
+
 type Call = {
   params: Params;
   resolve: (result: GeneratorResult) => void;

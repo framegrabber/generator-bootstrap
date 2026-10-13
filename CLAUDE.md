@@ -25,7 +25,7 @@ Work through these once, in order, when the user starts their own app:
 2. **Set the printer.** `PRINT_BED` in `src/app-config.ts` drives the preview's bed outline and the "does not fit" warnings.
 3. **Create the first generator.** `npm run new-generator -- <id> "<Name>"`, then follow "Writing a generator" below. `src/generators/rounded-tag/` is the worked reference: groups, `visibleWhen`, cross-field `validate`, a geometry helper, and a part `quantity`.
 4. **Choose the default generator.** The default is the first generator sorted by `name`. `tests/e2e/smoke.spec.ts` drives the default generator: it fills the `Width` and `Height` fields and expects `stl/01_tag.stl`. When the default changes, rewrite the smoke test against the new default's labels and part names.
-5. **Remove the example when it is no longer useful.** Delete `src/generators/rounded-tag/` and `tests/unit/generators/rounded-tag.test.ts`. Three infrastructure tests use `rounded-tag` as their fixture and then fail: `tests/unit/state/snapshot.test.ts`, `tests/unit/state/persistence.test.ts`, and `tests/unit/exporters/export.test.ts`. Point them at a remaining generator's id and param keys (they read `width`). `tests/unit/exporters/settings.test.ts` names `rounded-tag` only in rejection cases and keeps passing.
+5. **Remove the example when it is no longer useful.** Delete `src/generators/rounded-tag/` and `tests/unit/generators/rounded-tag.test.ts`. Nothing else depends on it: infrastructure tests use the test-only `FIXTURE` generator in `tests/unit/fixtures.ts`.
 6. **Deploy.** Pushing to `main` deploys through the workflow; in the repository's Pages settings, set the source to "GitHub Actions". `vite.config.ts` uses `base: "./"`, so the app works under a project subpath.
 
 ## Where to change things
@@ -77,7 +77,7 @@ A generator lives in `src/generators/<id>/`; the folder name must equal `id` (th
 - `src/App.tsx` — root layout. `src/ui/` — `ParamsPanel`, `NumberField`, `ExportButtons`, `Preview`, `fit.ts`, `geometry.ts`, `styles.css`.
 - `src/app-config.ts` — `APP.name`, `APP.slug`, `PRINT_BED`.
 - `scripts/new-generator.mjs` — the scaffold.
-- `tests/unit/` mirrors `src/`. `tests/e2e/smoke.spec.ts` covers type → build → download → reload.
+- `tests/unit/` mirrors `src/`. `tests/unit/fixtures.ts` holds `FIXTURE`, a test-only generator, and `fixtureRegistry`, which replaces the global registry via `vi.mock`. Tests of shared infrastructure (state, persistence, settings, export) use it, never a real generator, so they keep passing when the app's generators change; follow that rule when adding such tests. `tests/e2e/smoke.spec.ts` covers type → build → download → reload.
 
 ## How it works
 

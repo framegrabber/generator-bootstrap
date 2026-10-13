@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { APP } from "../../../src/app-config";
 import { parseSettingsFile, settingsJson } from "../../../src/exporters/settings";
 import { defaultSnapshot } from "../../../src/state/snapshot";
+import { FIXTURE } from "../fixtures";
+
+// vi.mock is hoisted above this file's imports, so the factory loads the fixture dynamically.
+vi.mock(import("../../../src/generators"), async (importOriginal) =>
+  (await import("../fixtures")).fixtureRegistry(await importOriginal()),
+);
 
 describe("settings files", () => {
   it("round-trips a snapshot through JSON", () => {
@@ -11,7 +17,7 @@ describe("settings files", () => {
   });
 
   it("rejects files written for another app", () => {
-    const foreign = JSON.stringify({ app: "other-app", generator: "rounded-tag", values: {} });
+    const foreign = JSON.stringify({ app: "other-app", generator: FIXTURE.id, values: {} });
     expect(() => parseSettingsFile(foreign)).toThrow(/Not a settings file/);
   });
 
@@ -25,12 +31,12 @@ describe("settings files", () => {
   });
 
   it("rejects files from a newer settings version", () => {
-    const newer = JSON.stringify({ app: APP.slug, version: 99, generator: "rounded-tag", values: {} });
+    const newer = JSON.stringify({ app: APP.slug, version: 99, generator: FIXTURE.id, values: {} });
     expect(() => parseSettingsFile(newer)).toThrow(/version 99/);
   });
 
   it("rejects files without a version", () => {
-    const unversioned = JSON.stringify({ app: APP.slug, generator: "rounded-tag", values: {} });
+    const unversioned = JSON.stringify({ app: APP.slug, generator: FIXTURE.id, values: {} });
     expect(() => parseSettingsFile(unversioned)).toThrow(/no valid version/);
   });
 });

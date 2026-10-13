@@ -3,6 +3,12 @@ import { APP } from "../../../src/app-config";
 import { initPersistence } from "../../../src/state/persistence";
 import { useParams } from "../../../src/state/params-store";
 import { defaultSnapshot } from "../../../src/state/snapshot";
+import { FIXTURE } from "../fixtures";
+
+// vi.mock is hoisted above this file's imports, so the factory loads the fixture dynamically.
+vi.mock(import("../../../src/generators"), async (importOriginal) =>
+  (await import("../fixtures")).fixtureRegistry(await importOriginal()),
+);
 
 const STORAGE_KEY = `${APP.slug}-params-v1`;
 
@@ -21,7 +27,7 @@ function stubWindow(search: string, storage: Partial<Storage>) {
 }
 
 function urlFor(width: number): string {
-  const snapshot = { generator: "rounded-tag", values: { ...defaultSnapshot().values, width } };
+  const snapshot = { generator: FIXTURE.id, values: { ...defaultSnapshot().values, width } };
   return `?p=${encodeURIComponent(JSON.stringify(snapshot))}`;
 }
 
@@ -41,7 +47,7 @@ afterEach(() => {
 
 describe("initPersistence", () => {
   it("prefers the URL snapshot over localStorage", () => {
-    const stored = JSON.stringify({ generator: "rounded-tag", values: { width: 11 } });
+    const stored = JSON.stringify({ generator: FIXTURE.id, values: { width: 11 } });
     stubWindow(urlFor(77), { getItem: () => stored, setItem: vi.fn() });
     stop = initPersistence();
     expect(useParams.getState().values.width).toBe(77);

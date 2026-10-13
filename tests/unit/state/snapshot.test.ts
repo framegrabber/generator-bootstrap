@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { defaultSnapshot, restoreSnapshot } from "../../../src/state/snapshot";
 import type { GeneratorDef } from "../../../src/core/types";
-import roundedTag from "../../../src/generators/rounded-tag";
+import { FIXTURE } from "../fixtures";
 
-const generators: GeneratorDef[] = [roundedTag];
+const generators: GeneratorDef[] = [FIXTURE];
 
 describe("restoreSnapshot", () => {
   it("falls back to defaults for non-object input", () => {
@@ -20,25 +20,25 @@ describe("restoreSnapshot", () => {
   it("keeps valid values and fills mistyped or missing keys from defaults", () => {
     const restored = restoreSnapshot(
       {
-        generator: "rounded-tag",
+        generator: FIXTURE.id,
         values: { width: 60, height: "tall", hole: false, unknownKey: 1 },
       },
       generators,
     );
-    expect(restored.generator).toBe("rounded-tag");
+    expect(restored.generator).toBe(FIXTURE.id);
     expect(restored.values.width).toBe(60);
-    expect(restored.values.height).toBe(roundedTag.params[1].default);
+    expect(restored.values.height).toBe(FIXTURE.params[1].default);
     expect(restored.values.hole).toBe(false);
     expect(restored.values).not.toHaveProperty("unknownKey");
   });
 
   it("applies the generator's migrate hook before merging", () => {
     const legacy: GeneratorDef = {
-      ...roundedTag,
+      ...FIXTURE,
       migrate: (raw) => ({ ...raw, width: raw.oldWidth }),
     };
     const restored = restoreSnapshot(
-      { generator: "rounded-tag", values: { oldWidth: 77 } },
+      { generator: FIXTURE.id, values: { oldWidth: 77 } },
       [legacy],
     );
     expect(restored.values.width).toBe(77);

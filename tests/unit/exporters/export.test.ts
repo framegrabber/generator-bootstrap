@@ -3,8 +3,8 @@ import JSZip from "jszip";
 import { exportEntries } from "../../../src/exporters/export";
 import { modelXml } from "../../../src/exporters/formats/threemf";
 import type { GeneratorResult, Part } from "../../../src/core/types";
-import { findGenerator } from "../../../src/generators";
-import { paramsFor } from "../generators/helpers";
+import { defaultParams } from "../../../src/core/params";
+import { FIXTURE } from "../fixtures";
 
 /** Unit right triangle at the origin, 10 mm wide. */
 function part(name: string, extra: Partial<Part> = {}): Part {
@@ -45,8 +45,8 @@ describe("modelXml", () => {
 });
 
 describe("exportEntries", () => {
-  const def = findGenerator("rounded-tag")!;
-  const values = paramsFor("rounded-tag");
+  const def = FIXTURE;
+  const values = defaultParams(FIXTURE.params);
   const result: GeneratorResult = {
     parts: [part("tag", { quantity: 2 })],
     extraFiles: [{ path: "notes.txt", content: "hi" }],
@@ -64,7 +64,7 @@ describe("exportEntries", () => {
 
   it("packs a valid 3MF package for the 3mf format", async () => {
     const entries = await exportEntries({ ...input, format: "3mf" });
-    expect(entries.map((e) => e.path)).toEqual(["rounded-tag.3mf", "notes.txt", "README.txt"]);
+    expect(entries.map((e) => e.path)).toEqual(["fixture.3mf", "notes.txt", "README.txt"]);
     const pkg = await JSZip.loadAsync(entries[0].data as ArrayBuffer);
     expect(Object.keys(pkg.files).sort()).toEqual([
       "3D/",
