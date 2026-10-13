@@ -52,12 +52,7 @@ export type FontParam = ParamBase & { kind: "font"; default: string };
 
 /** Declarative parameter description; the UI form and validation are generated from it. */
 export type ParamSpec =
-  | NumberParam
-  | BooleanParam
-  | TextParam
-  | SelectParam
-  | ColorParam
-  | FontParam;
+  NumberParam | BooleanParam | TextParam | SelectParam | ColorParam | FontParam;
 
 export type ValidationIssue = {
   /** Parameter key the issue belongs to, or null for a whole-generator issue. */

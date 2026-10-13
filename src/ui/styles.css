@@ -7,7 +7,11 @@
   --border: #2d323c;
   --accent: #6aa8ff;
   --error: #ff7b7b;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
 }
 
 * {
@@ -64,6 +68,7 @@ body {
 
 .field input,
 .field select,
+.field textarea,
 .number-field input {
   background: var(--bg);
   color: var(--fg);
@@ -200,4 +205,14 @@ button.primary {
 .view-toolbar button {
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field input.color-input {
+  padding: 2px;
+  height: 32px;
+  width: 64px;
 }

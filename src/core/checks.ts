@@ -55,7 +55,10 @@ export function checkResult(result: GeneratorResult, bed: PrintBed): CheckReport
       errors.push(`${label}: all parts of an assembly must have the same quantity`);
       continue;
     }
-    if (group.isAssembly && result.parts.some((p) => p.assembly === undefined && p.name === group.name)) {
+    if (
+      group.isAssembly &&
+      result.parts.some((p) => p.assembly === undefined && p.name === group.name)
+    ) {
       errors.push(`${label}: assembly name collides with a standalone part name`);
       continue;
     }
@@ -72,7 +75,9 @@ export function checkResult(result: GeneratorResult, bed: PrintBed): CheckReport
       );
     }
     if (Math.abs(bounds.min[2]) > BED_CONTACT_TOLERANCE_MM) {
-      warnings.push(`${label} does not rest on the bed (lowest point at z = ${mm(bounds.min[2])} mm)`);
+      warnings.push(
+        `${label} does not rest on the bed (lowest point at z = ${mm(bounds.min[2])} mm)`,
+      );
     }
   }
   return { errors, warnings };

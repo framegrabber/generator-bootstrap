@@ -1,8 +1,9 @@
-import { Fragment } from "react";
+import { Fragment, useId } from "react";
 import { GENERATORS, findGenerator } from "../generators";
 import { isVisible } from "../core/params";
 import type { ParamSpec, ParamValue, Params, ValidationIssue } from "../core/types";
 import { useParams } from "../state/params-store";
+import { FontField } from "./FontField";
 import { NumberField } from "./NumberField";
 
 export function GeneratorPicker() {
@@ -91,8 +92,12 @@ type FieldProps = {
 };
 
 function ParamField({ spec, value, error, onChange }: FieldProps) {
+  // Separate <label htmlFor>: a label wrapping a textarea or select would put the control's
+  // current value into its accessible name.
+  const id = useId();
   const help = spec.help && <span className="field-help">{spec.help}</span>;
   const errorText = error && <span className="field-error">{error}</span>;
+  const label = <label htmlFor={id}>{spec.label}</label>;
   switch (spec.kind) {
     case "number":
       return (
@@ -123,25 +128,39 @@ function ParamField({ spec, value, error, onChange }: FieldProps) {
           {errorText}
         </div>
       );
-    case "text":
+    case "text": {
+      const text = typeof value === "string" ? value : spec.default;
       return (
-        <label className="field">
-          {spec.label}
-          <input
-            type="text"
-            value={typeof value === "string" ? value : spec.default}
-            maxLength={spec.maxLength}
-            onChange={(e) => onChange(e.target.value)}
-          />
+        <div className="field">
+          {label}
+          {spec.multiline ? (
+            <textarea
+              id={id}
+              value={text}
+              rows={Math.min(6, Math.max(2, text.split("\n").length))}
+              maxLength={spec.maxLength}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          ) : (
+            <input
+              id={id}
+              type="text"
+              value={text}
+              maxLength={spec.maxLength}
+              onChange={(e) => onChange(e.target.value)}
+            />
+          )}
           {help}
           {errorText}
-        </label>
+        </div>
       );
+    }
     case "select":
       return (
-        <label className="field">
-          {spec.label}
+        <div className="field">
+          {label}
           <select
+            id={id}
             value={typeof value === "string" ? value : spec.default}
             onChange={(e) => onChange(e.target.value)}
           >
@@ -153,7 +172,32 @@ function ParamField({ spec, value, error, onChange }: FieldProps) {
           </select>
           {help}
           {errorText}
-        </label>
+        </div>
+      );
+    case "color":
+      return (
+        <div className="field">
+          {label}
+          <input
+            id={id}
+            type="color"
+            className="color-input"
+            value={typeof value === "string" ? value.toLowerCase() : spec.default}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {help}
+          {errorText}
+        </div>
+      );
+    case "font":
+      return (
+        <FontField
+          label={spec.label}
+          value={typeof value === "string" ? value : spec.default}
+          help={spec.help}
+          error={error}
+          onChange={onChange}
+        />
       );
   }
 }

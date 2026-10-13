@@ -29,7 +29,9 @@ export async function addUploadedFont(name: string, bytes: ArrayBuffer): Promise
     throw new Error(`"${name}" is not a TTF, OTF, or WOFF font file`);
   }
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const sha256 = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  const sha256 = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
   const fonts = await listUploadedFonts();
   const existing = fonts.find((f) => f.sha256 === sha256);
   if (existing) return existing;

@@ -114,6 +114,8 @@ describe("validateParams", () => {
     const hidden = { ...defaultParams(specs), on: false, count: 0 };
     expect(validateParams(def(), hidden)).toEqual([]);
     const mistyped = { ...hidden, count: "two" as unknown as number };
-    expect(validateParams(def(), mistyped)).toEqual([{ key: "count", message: "Count: invalid value" }]);
+    expect(validateParams(def(), mistyped)).toEqual([
+      { key: "count", message: "Count: invalid value" },
+    ]);
   });
 });

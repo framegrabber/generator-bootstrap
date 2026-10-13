@@ -52,7 +52,8 @@ describe("textOutline", () => {
   });
 
   it("renders every letter, digit, and common punctuation as a valid outline", () => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&@#?!.,:;-+()'\"/ÄÖÜäöüß€";
+    const chars =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789&@#?!.,:;-+()'\"/ÄÖÜäöüß€";
     for (const ch of chars) {
       expect(measure({ text: ch, capHeight: 10 }).area, `glyph ${ch}`).toBeGreaterThan(0);
     }

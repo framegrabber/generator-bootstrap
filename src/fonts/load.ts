@@ -34,9 +34,12 @@ export function loadFont(value: string): Promise<opentype.Font> {
       try {
         return opentype.parse(bytes);
       } catch (error) {
-        throw new Error(`Could not read the font: ${error instanceof Error ? error.message : error}`, {
-          cause: error,
-        });
+        throw new Error(
+          `Could not read the font: ${error instanceof Error ? error.message : error}`,
+          {
+            cause: error,
+          },
+        );
       }
     });
     // A failed load (missing upload, network) is retried next time.

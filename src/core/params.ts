@@ -1,11 +1,5 @@
 import { parseFontRef } from "../fonts/bundled";
-import type {
-  GeneratorDef,
-  ParamSpec,
-  ParamValue,
-  Params,
-  ValidationIssue,
-} from "./types";
+import type { GeneratorDef, ParamSpec, ParamValue, Params, ValidationIssue } from "./types";
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -73,7 +67,8 @@ export function validateParams(def: GeneratorDef, values: Params): ValidationIss
       continue;
     }
     if (spec.kind !== "number" || typeof value !== "number" || !isVisible(spec, values)) continue;
-    const fail = (message: string) => issues.push({ key: spec.key, message: `${spec.label} ${message}` });
+    const fail = (message: string) =>
+      issues.push({ key: spec.key, message: `${spec.label} ${message}` });
     if (spec.integer && !Number.isInteger(value)) fail("must be a whole number");
     else if (spec.min !== undefined && value < spec.min) fail(`must be at least ${spec.min}`);
     else if (spec.max !== undefined && value > spec.max) fail(`must be at most ${spec.max}`);

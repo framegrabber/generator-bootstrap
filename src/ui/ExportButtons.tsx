@@ -6,7 +6,7 @@ import { useBuild, canExport } from "../state/build-store";
 import { useParams } from "../state/params-store";
 import { snapshotUrl } from "../state/persistence";
 import { buildZipFilename } from "../exporters/filename";
-import { downloadBlob, pickTextFile } from "../exporters/download";
+import { downloadBlob, pickFile } from "../exporters/download";
 import { EXPORT_FORMATS, exportEntries, type ExportFormatId } from "../exporters/export";
 import { bundleZip } from "../exporters/zip";
 import { parseSettingsFile, settingsJson } from "../exporters/settings";
@@ -55,8 +55,8 @@ export function ExportButtons() {
   }
 
   async function loadSettings() {
-    const text = await pickTextFile(".json,application/json");
-    if (text !== null) replace(parseSettingsFile(text));
+    const file = await pickFile(".json,application/json");
+    if (file) replace(parseSettingsFile(await file.text()));
   }
 
   return (

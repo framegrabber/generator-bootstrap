@@ -20,7 +20,8 @@ export type TextOptions = {
 /** Cap height in font units: OS/2 sCapHeight, else the height of "H", else 70% of the em. */
 function capHeightUnits(font: opentype.Font): number {
   const os2 = font.tables.os2;
-  const fromTable = os2 && "sCapHeight" in os2 && typeof os2.sCapHeight === "number" ? os2.sCapHeight : 0;
+  const fromTable =
+    os2 && "sCapHeight" in os2 && typeof os2.sCapHeight === "number" ? os2.sCapHeight : 0;
   if (fromTable > 0) return fromTable;
   const h = font.charToGlyph("H").getBoundingBox();
   return h.y2 - h.y1 > 0 ? h.y2 - h.y1 : font.unitsPerEm * 0.7;
@@ -68,7 +69,10 @@ export function textOutline(
  * Flattens path commands (y pointing down, as opentype.js emits them) into closed polygons with
  * y pointing up. Curves are subdivided until every control point is within `tolerance`.
  */
-export function flattenPath(commands: readonly opentype.PathCommand[], tolerance: number): SimplePolygon[] {
+export function flattenPath(
+  commands: readonly opentype.PathCommand[],
+  tolerance: number,
+): SimplePolygon[] {
   const polygons: SimplePolygon[] = [];
   let current: SimplePolygon = [];
   let x = 0;
@@ -121,7 +125,10 @@ function subdivide(
   const stack: [Bezier, number][] = [[curve, 0]];
   while (stack.length > 0) {
     const [[ax, ay, bx, by, cx, cy, dx, dy], depth] = stack.pop()!;
-    const deviation = Math.max(distanceToLine(bx, by, ax, ay, dx, dy), distanceToLine(cx, cy, ax, ay, dx, dy));
+    const deviation = Math.max(
+      distanceToLine(bx, by, ax, ay, dx, dy),
+      distanceToLine(cx, cy, ax, ay, dx, dy),
+    );
     if (deviation <= tolerance || depth >= 16) {
       emit(dx, dy);
       continue;
@@ -144,7 +151,14 @@ function subdivide(
   }
 }
 
-function distanceToLine(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+function distanceToLine(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
   const [dx, dy] = [bx - ax, by - ay];
   const length = Math.hypot(dx, dy);
   if (length === 0) return Math.hypot(px - ax, py - ay);

@@ -35,13 +35,14 @@ describe("checkResult", () => {
 
   it("warns when a part floats above the bed", () => {
     const { warnings } = checkResult({ parts: [boxPart("float", [10, 10, 10], 2)] }, BED);
-    expect(warnings).toEqual([
-      'Part "float" does not rest on the bed (lowest point at z = 2 mm)',
-    ]);
+    expect(warnings).toEqual(['Part "float" does not rest on the bed (lowest point at z = 2 mm)']);
   });
 
   it("rejects duplicate names, unsafe names, empty meshes, and bad metadata", () => {
-    const empty: Part = { name: "empty", mesh: { positions: new Float32Array(), indices: new Uint32Array() } };
+    const empty: Part = {
+      name: "empty",
+      mesh: { positions: new Float32Array(), indices: new Uint32Array() },
+    };
     const { errors } = checkResult(
       {
         parts: [
