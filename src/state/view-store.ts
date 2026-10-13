@@ -1,12 +1,18 @@
 import { create } from "zustand";
 
-/** Session-only view state. `fitToken` bumps to ask the preview to re-frame the model. */
+/**
+ * Session-only view state. `fitPending` asks the preview to frame the next result built for the
+ * current params; it starts true so the first geometry is framed. A result that was built for
+ * older params (still on screen after a generator switch or settings load) never takes it.
+ */
 type ViewState = {
-  fitToken: number;
-  requestFit: () => void;
+  fitPending: boolean;
+  fitOnNextResult: () => void;
+  clearFitPending: () => void;
 };
 
 export const useView = create<ViewState>((set) => ({
-  fitToken: 0,
-  requestFit: () => set((s) => ({ fitToken: s.fitToken + 1 })),
+  fitPending: true,
+  fitOnNextResult: () => set({ fitPending: true }),
+  clearFitPending: () => set({ fitPending: false }),
 }));

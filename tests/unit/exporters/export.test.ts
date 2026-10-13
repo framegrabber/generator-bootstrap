@@ -1,0 +1,87 @@
+import { describe, expect, it } from "vitest";
+import JSZip from "jszip";
+import { exportEntries } from "../../../src/exporters/export";
+import { modelXml } from "../../../src/exporters/formats/threemf";
+import type { GeneratorResult, Part } from "../../../src/core/types";
+import { findGenerator } from "../../../src/generators";
+import { paramsFor } from "../generators/helpers";
+
+/** Unit right triangle at the origin, 10 mm wide. */
+function part(name: string, extra: Partial<Part> = {}): Part {
+  return {
+    name,
+    mesh: {
+      positions: new Float32Array([0, 0, 0, 10, 0, 0, 0, 10, 0]),
+      indices: new Uint32Array([0, 1, 2]),
+    },
+    ...extra,
+  };
+}
+
+const count = (xml: string, tag: string) => xml.split(`<${tag} `).length - 1;
+
+describe("modelXml", () => {
+  it("writes one object per part and one build item per copy, laid out without overlap", () => {
+    const xml = modelXml([part("a", { quantity: 3 }), part("b")], "App");
+    expect(count(xml, "object")).toBe(2);
+    expect(count(xml, "vertex")).toBe(6);
+    expect(count(xml, "triangle")).toBe(2);
+    const offsets = [...xml.matchAll(/transform="1 0 0 0 1 0 0 0 1 ([\d.-]+) /g)].map((m) => Number(m[1]));
+    expect(offsets).toEqual([0, 15, 30, 45]);
+  });
+
+  it("assigns display colours only to parts that declare one", () => {
+    const xml = modelXml([part("plain"), part("red", { color: "#ff0000" })], "App");
+    expect(xml).toContain('<base name="red" displaycolor="#ff0000"/>');
+    expect(xml).toContain('<object id="2" type="model" name="plain">');
+    expect(xml).toContain('<object id="3" type="model" name="red" pid="1" pindex="0">');
+  });
+
+  it("escapes XML in names", () => {
+    expect(modelXml([part("a")], 'A&B "app"')).toContain(
+      "<metadata name=\"Application\">A&amp;B &quot;app&quot;</metadata>",
+    );
+  });
+});
+
+describe("exportEntries", () => {
+  const def = findGenerator("rounded-tag")!;
+  const values = paramsFor("rounded-tag");
+  const result: GeneratorResult = {
+    parts: [part("tag", { quantity: 2 })],
+    extraFiles: [{ path: "notes.txt", content: "hi" }],
+    warnings: ["careful"],
+  };
+  const input = { def, values, result, reproduceUrl: "https://x.test/?p=1" };
+
+  it("names STL files with their quantity and lists parts in the README", async () => {
+    const entries = await exportEntries({ ...input, format: "stl" });
+    expect(entries.map((e) => e.path)).toEqual(["stl/01_tag_x2.stl", "notes.txt", "README.txt"]);
+    const readme = String(entries.at(-1)!.data);
+    expect(readme).toContain("  tag x 2");
+    expect(readme).toContain("  careful");
+  });
+
+  it("packs a valid 3MF package for the 3mf format", async () => {
+    const entries = await exportEntries({ ...input, format: "3mf" });
+    expect(entries.map((e) => e.path)).toEqual(["rounded-tag.3mf", "notes.txt", "README.txt"]);
+    const pkg = await JSZip.loadAsync(entries[0].data as ArrayBuffer);
+    expect(Object.keys(pkg.files).sort()).toEqual([
+      "3D/",
+      "3D/3dmodel.model",
+      "[Content_Types].xml",
+      "_rels/",
+      "_rels/.rels",
+    ]);
+    expect(count(await pkg.file("3D/3dmodel.model")!.async("string"), "item")).toBe(2);
+  });
+
+  it("omits hidden params from the README", async () => {
+    const entries = await exportEntries({
+      ...input,
+      values: { ...values, hole: false },
+      format: "stl",
+    });
+    expect(String(entries.at(-1)!.data)).not.toContain("Hole diameter");
+  });
+});

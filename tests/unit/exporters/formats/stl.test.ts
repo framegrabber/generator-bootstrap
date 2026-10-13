@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { meshToBinaryStl } from "../../../src/core/stl";
+import { meshToBinaryStl } from "../../../../src/exporters/formats/stl";
 
 const triangle = {
   positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),

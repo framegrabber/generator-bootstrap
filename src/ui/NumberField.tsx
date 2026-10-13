@@ -7,10 +7,12 @@ type Props = {
   onChange: (next: number) => void;
   step?: number;
   min?: number;
+  max?: number;
+  help?: string;
   error?: string;
 };
 
-export function NumberField({ label, unit, value, onChange, step = 0.1, min, error }: Props) {
+export function NumberField({ label, unit, value, onChange, step = 0.1, min, max, help, error }: Props) {
   const id = useId();
   // Local string state lets the user clear the field or type "5." without the controlled value
   // snapping back. Commits to onChange whenever the text parses to a finite number.
@@ -35,6 +37,7 @@ export function NumberField({ label, unit, value, onChange, step = 0.1, min, err
           inputMode="decimal"
           step={step}
           min={min}
+          max={max}
           value={text}
           onChange={(e) => {
             const next = e.target.value;
@@ -52,6 +55,7 @@ export function NumberField({ label, unit, value, onChange, step = 0.1, min, err
         />
         <span className="number-field-unit">{unit}</span>
       </div>
+      {help && <span className="field-help">{help}</span>}
       {error && (
         <div className="field-error" role="alert">
           {error}

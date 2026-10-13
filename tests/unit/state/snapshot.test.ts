@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultSnapshot, restoreSnapshot } from "../../../src/state/snapshot";
 import type { GeneratorDef } from "../../../src/core/types";
-import { roundedTag } from "../../../src/generators/rounded-tag";
+import roundedTag from "../../../src/generators/rounded-tag";
 
 const generators: GeneratorDef[] = [roundedTag];
 

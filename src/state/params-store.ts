@@ -23,10 +23,10 @@ export const useParams = create<ParamsState>((set) => ({
     const def = findGenerator(id);
     if (!def) return;
     set({ generatorId: def.id, values: defaultParams(def.params) });
-    useView.getState().requestFit();
+    useView.getState().fitOnNextResult();
   },
   replace: (snapshot) => {
     set({ generatorId: snapshot.generator, values: snapshot.values });
-    useView.getState().requestFit();
+    useView.getState().fitOnNextResult();
   },
 }));

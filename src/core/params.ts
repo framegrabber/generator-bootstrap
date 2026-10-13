@@ -46,8 +46,13 @@ export function matchesSpec(spec: ParamSpec, value: unknown): value is ParamValu
   }
 }
 
+/** Whether `spec`'s field is shown for `values`; hidden params skip range checks. */
+export function isVisible(spec: ParamSpec, values: Params): boolean {
+  return spec.visibleWhen?.(values) ?? true;
+}
+
 /**
- * Generic range/type checks first. The generator's own `validate` runs only when those
+ * Generic type/range checks first. The generator's own `validate` runs only when those
  * pass, so it can rely on `num()`/`str()` accessors without throwing.
  */
 export function validateParams(def: GeneratorDef, values: Params): ValidationIssue[] {
@@ -58,11 +63,11 @@ export function validateParams(def: GeneratorDef, values: Params): ValidationIss
       issues.push({ key: spec.key, message: `${spec.label}: invalid value` });
       continue;
     }
-    if (spec.kind === "number" && typeof value === "number") {
-      if (spec.min !== undefined && value < spec.min) {
-        issues.push({ key: spec.key, message: `${spec.label} must be at least ${spec.min}` });
-      }
-    }
+    if (spec.kind !== "number" || typeof value !== "number" || !isVisible(spec, values)) continue;
+    const fail = (message: string) => issues.push({ key: spec.key, message: `${spec.label} ${message}` });
+    if (spec.integer && !Number.isInteger(value)) fail("must be a whole number");
+    else if (spec.min !== undefined && value < spec.min) fail(`must be at least ${spec.min}`);
+    else if (spec.max !== undefined && value > spec.max) fail(`must be at most ${spec.max}`);
   }
   if (issues.length > 0) return issues;
   return def.validate ? def.validate(values) : [];

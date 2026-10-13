@@ -3,7 +3,16 @@ import { defaultParams, matchesSpec, validateParams } from "../../../src/core/pa
 import type { GeneratorDef, ParamSpec } from "../../../src/core/types";
 
 const specs: ParamSpec[] = [
-  { kind: "number", key: "size", label: "Size", default: 10, min: 1 },
+  { kind: "number", key: "size", label: "Size", default: 10, min: 1, max: 20 },
+  {
+    kind: "number",
+    key: "count",
+    label: "Count",
+    default: 2,
+    min: 1,
+    integer: true,
+    visibleWhen: (values) => values.on === true,
+  },
   { kind: "boolean", key: "on", label: "On", default: true },
   { kind: "text", key: "name", label: "Name", default: "a", maxLength: 3 },
   {
@@ -24,7 +33,6 @@ function def(overrides: Partial<GeneratorDef> = {}): GeneratorDef {
     name: "Test",
     description: "",
     params: specs,
-    build: async () => ({ parts: [] }),
     ...overrides,
   };
 }
@@ -37,13 +45,13 @@ describe("matchesSpec", () => {
   });
 
   it("enforces text maxLength", () => {
-    expect(matchesSpec(specs[2], "abc")).toBe(true);
-    expect(matchesSpec(specs[2], "abcd")).toBe(false);
+    expect(matchesSpec(specs[3], "abc")).toBe(true);
+    expect(matchesSpec(specs[3], "abcd")).toBe(false);
   });
 
   it("only accepts declared select options", () => {
-    expect(matchesSpec(specs[3], "y")).toBe(true);
-    expect(matchesSpec(specs[3], "z")).toBe(false);
+    expect(matchesSpec(specs[4], "y")).toBe(true);
+    expect(matchesSpec(specs[4], "z")).toBe(false);
   });
 });
 
@@ -66,5 +74,22 @@ describe("validateParams", () => {
     const validate = () => [{ key: null, message: "cross-field problem" }];
     const issues = validateParams(def({ validate }), defaultParams(specs));
     expect(issues).toEqual([{ key: null, message: "cross-field problem" }]);
+  });
+
+  it("reports values above max", () => {
+    const issues = validateParams(def(), { ...defaultParams(specs), size: 21 });
+    expect(issues).toEqual([{ key: "size", message: "Size must be at most 20" }]);
+  });
+
+  it("rejects fractions for integer params", () => {
+    const issues = validateParams(def(), { ...defaultParams(specs), count: 1.5 });
+    expect(issues).toEqual([{ key: "count", message: "Count must be a whole number" }]);
+  });
+
+  it("skips range checks for hidden params but still type-checks them", () => {
+    const hidden = { ...defaultParams(specs), on: false, count: 0 };
+    expect(validateParams(def(), hidden)).toEqual([]);
+    const mistyped = { ...hidden, count: "two" as unknown as number };
+    expect(validateParams(def(), mistyped)).toEqual([{ key: "count", message: "Count: invalid value" }]);
   });
 });

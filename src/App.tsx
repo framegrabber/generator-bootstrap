@@ -3,32 +3,33 @@ import { APP } from "./app-config";
 import { ExportButtons } from "./ui/ExportButtons";
 import { GeneratorPicker, ParamsPanel } from "./ui/ParamsPanel";
 import { Preview } from "./ui/Preview";
-import { useBuild } from "./ui/useBuild";
+import { useBuild } from "./state/build-store";
 
 export default function App() {
-  const build = useBuild();
-  const warnings = build.result?.warnings ?? [];
+  const issues = useBuild((s) => s.issues);
+  const error = useBuild((s) => s.error);
+  const warnings = useBuild((s) => s.result?.warnings);
 
   return (
     <div className="layout">
       <aside className="sidebar">
         <h1>{APP.name}</h1>
         <GeneratorPicker />
-        <ParamsPanel issues={build.issues} />
-        <ExportButtons build={build} />
-        {build.error && (
+        <ParamsPanel issues={issues} />
+        <ExportButtons />
+        {error && (
           <div className="field-error" role="alert">
-            {build.error}
+            {error}
           </div>
         )}
-        {warnings.map((warning, index) => (
+        {warnings?.map((warning, index) => (
           <div key={index} className="status-text">
             {warning}
           </div>
         ))}
       </aside>
       <main className="stage">
-        <Preview parts={build.result?.parts ?? null} busy={build.busy} />
+        <Preview />
       </main>
     </div>
   );

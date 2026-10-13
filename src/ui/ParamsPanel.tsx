@@ -1,11 +1,14 @@
+import { Fragment } from "react";
 import { GENERATORS, findGenerator } from "../generators";
-import type { ParamSpec, ParamValue, ValidationIssue } from "../core/types";
+import { isVisible } from "../core/params";
+import type { ParamSpec, ParamValue, Params, ValidationIssue } from "../core/types";
 import { useParams } from "../state/params-store";
 import { NumberField } from "./NumberField";
 
 export function GeneratorPicker() {
   const generatorId = useParams((s) => s.generatorId);
   const selectGenerator = useParams((s) => s.selectGenerator);
+  const def = findGenerator(generatorId);
   return (
     <label className="field">
       Generator
@@ -16,8 +19,22 @@ export function GeneratorPicker() {
           </option>
         ))}
       </select>
+      {def && <span className="field-help">{def.description}</span>}
     </label>
   );
+}
+
+/** Visible specs bucketed by group, groups in order of first appearance; ungrouped first. */
+function groupSpecs(specs: readonly ParamSpec[], values: Params): Map<string, ParamSpec[]> {
+  const groups = new Map<string, ParamSpec[]>([["", []]]);
+  for (const spec of specs) {
+    if (!isVisible(spec, values)) continue;
+    const group = spec.group ?? "";
+    const list = groups.get(group);
+    if (list) list.push(spec);
+    else groups.set(group, [spec]);
+  }
+  return groups;
 }
 
 export function ParamsPanel({ issues }: { issues: readonly ValidationIssue[] }) {
@@ -32,24 +49,36 @@ export function ParamsPanel({ issues }: { issues: readonly ValidationIssue[] }) 
       .filter((i) => i.key === key)
       .map((i) => i.message)
       .join(" ");
-  const generalIssues = issues.filter((i) => i.key === null);
+  const fields = (specs: readonly ParamSpec[]) =>
+    specs.map((spec) => (
+      <ParamField
+        key={spec.key}
+        spec={spec}
+        value={values[spec.key]}
+        error={issuesFor(spec.key)}
+        onChange={(v) => setValue(spec.key, v)}
+      />
+    ));
 
   return (
     <section className="params">
-      {def.params.map((spec) => (
-        <ParamField
-          key={spec.key}
-          spec={spec}
-          value={values[spec.key]}
-          error={issuesFor(spec.key)}
-          onChange={(v) => setValue(spec.key, v)}
-        />
-      ))}
-      {generalIssues.map((issue) => (
-        <div key={issue.message} className="field-error" role="alert">
-          {issue.message}
-        </div>
-      ))}
+      {[...groupSpecs(def.params, values)].map(([group, specs]) =>
+        group === "" ? (
+          <Fragment key="">{fields(specs)}</Fragment>
+        ) : (
+          <fieldset key={group} className="param-group">
+            <legend>{group}</legend>
+            {fields(specs)}
+          </fieldset>
+        ),
+      )}
+      {issues
+        .filter((i) => i.key === null)
+        .map((issue) => (
+          <div key={issue.message} className="field-error" role="alert">
+            {issue.message}
+          </div>
+        ))}
     </section>
   );
 }
@@ -62,6 +91,8 @@ type FieldProps = {
 };
 
 function ParamField({ spec, value, error, onChange }: FieldProps) {
+  const help = spec.help && <span className="field-help">{spec.help}</span>;
+  const errorText = error && <span className="field-error">{error}</span>;
   switch (spec.kind) {
     case "number":
       return (
@@ -69,23 +100,28 @@ function ParamField({ spec, value, error, onChange }: FieldProps) {
           label={spec.label}
           unit={spec.unit ?? ""}
           value={typeof value === "number" ? value : spec.default}
-          step={spec.step}
+          step={spec.step ?? (spec.integer ? 1 : undefined)}
           min={spec.min}
+          max={spec.max}
+          help={spec.help}
           error={error}
           onChange={onChange}
         />
       );
     case "boolean":
       return (
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={typeof value === "boolean" ? value : spec.default}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          {spec.label}
-          {error && <span className="field-error">{error}</span>}
-        </label>
+        <div className="field">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={typeof value === "boolean" ? value : spec.default}
+              onChange={(e) => onChange(e.target.checked)}
+            />
+            {spec.label}
+          </label>
+          {help}
+          {errorText}
+        </div>
       );
     case "text":
       return (
@@ -97,7 +133,8 @@ function ParamField({ spec, value, error, onChange }: FieldProps) {
             maxLength={spec.maxLength}
             onChange={(e) => onChange(e.target.value)}
           />
-          {error && <span className="field-error">{error}</span>}
+          {help}
+          {errorText}
         </label>
       );
     case "select":
@@ -114,7 +151,8 @@ function ParamField({ spec, value, error, onChange }: FieldProps) {
               </option>
             ))}
           </select>
-          {error && <span className="field-error">{error}</span>}
+          {help}
+          {errorText}
         </label>
       );
   }

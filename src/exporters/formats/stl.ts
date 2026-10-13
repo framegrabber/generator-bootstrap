@@ -1,4 +1,4 @@
-import type { Mesh } from "./types";
+import type { Mesh } from "../../core/types";
 
 const HEADER_BYTES = 80;
 const TRIANGLE_BYTES = 50;
@@ -17,6 +17,12 @@ export function meshToBinaryStl(mesh: Mesh, header = "binary STL"): ArrayBuffer 
   const p = mesh.positions;
   const idx = mesh.indices;
   let offset = HEADER_BYTES + 4;
+  const writeVec = (x: number, y: number, z: number) => {
+    view.setFloat32(offset, x, true);
+    view.setFloat32(offset + 4, y, true);
+    view.setFloat32(offset + 8, z, true);
+    offset += 12;
+  };
   for (let t = 0; t < triangleCount; t++) {
     const a = idx[t * 3] * 3;
     const b = idx[t * 3 + 1] * 3;
@@ -28,26 +34,15 @@ export function meshToBinaryStl(mesh: Mesh, header = "binary STL"): ArrayBuffer 
     const vx = p[c] - p[a];
     const vy = p[c + 1] - p[a + 1];
     const vz = p[c + 2] - p[a + 2];
-    let nx = uy * vz - uz * vy;
-    let ny = uz * vx - ux * vz;
-    let nz = ux * vy - uy * vx;
-    const length = Math.hypot(nx, ny, nz);
-    if (length > 0) {
-      nx /= length;
-      ny /= length;
-      nz /= length;
-    }
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const length = Math.hypot(nx, ny, nz) || 1;
 
-    view.setFloat32(offset, nx, true);
-    view.setFloat32(offset + 4, ny, true);
-    view.setFloat32(offset + 8, nz, true);
-    offset += 12;
-    for (const v of [a, b, c]) {
-      view.setFloat32(offset, p[v], true);
-      view.setFloat32(offset + 4, p[v + 1], true);
-      view.setFloat32(offset + 8, p[v + 2], true);
-      offset += 12;
-    }
+    writeVec(nx / length, ny / length, nz / length);
+    writeVec(p[a], p[a + 1], p[a + 2]);
+    writeVec(p[b], p[b + 1], p[b + 2]);
+    writeVec(p[c], p[c + 1], p[c + 2]);
     view.setUint16(offset, 0, true);
     offset += 2;
   }

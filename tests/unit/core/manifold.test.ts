@@ -6,7 +6,7 @@ function disposable() {
 }
 
 describe("withScope", () => {
-  it("deletes every tracked object, in reverse order, when the body returns", () => {
+  it("deletes every tracked object when the body returns", () => {
     const a = disposable();
     const b = disposable();
     withScope((scope) => {

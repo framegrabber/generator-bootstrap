@@ -20,7 +20,17 @@ describe("settings files", () => {
   });
 
   it("rejects files naming an unknown generator", () => {
-    const unknown = JSON.stringify({ app: APP.slug, generator: "ghost", values: {} });
+    const unknown = JSON.stringify({ app: APP.slug, version: 1, generator: "ghost", values: {} });
     expect(() => parseSettingsFile(unknown)).toThrow(/unknown generator "ghost"/);
+  });
+
+  it("rejects files from a newer settings version", () => {
+    const newer = JSON.stringify({ app: APP.slug, version: 99, generator: "rounded-tag", values: {} });
+    expect(() => parseSettingsFile(newer)).toThrow(/version 99/);
+  });
+
+  it("rejects files without a version", () => {
+    const unversioned = JSON.stringify({ app: APP.slug, generator: "rounded-tag", values: {} });
+    expect(() => parseSettingsFile(unversioned)).toThrow(/no valid version/);
   });
 });

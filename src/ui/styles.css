@@ -132,7 +132,7 @@ button:disabled {
   cursor: default;
 }
 
-.actions > button:first-child {
+button.primary {
   background: var(--accent);
   color: #0b1220;
   border-color: transparent;
@@ -165,4 +165,39 @@ button:disabled {
 .status-text {
   font-size: 12px;
   color: var(--muted);
+}
+
+.param-group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px 10px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.param-group legend {
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.field-help {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.view-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 4px;
+}
+
+.view-toolbar button {
+  padding: 4px 8px;
+  font-size: 12px;
 }
