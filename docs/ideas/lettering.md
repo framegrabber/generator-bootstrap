@@ -1,5 +1,7 @@
 # Lettering for generators
 
+Status: implemented (commits dbe61ae, acb6dbb). Deviation: Inter renders without kerning, because opentype.js cannot read the GPOS extension lookups that hold Inter's kerning; uploaded fonts with `kern` tables or plain GPOS pairs are kerned.
+
 ## Problem Statement
 How might we let any generator add lettering (embedded, raised, or cut out, in a colour the user picks) with one call in `build.ts`, without generator authors handling font files, while end users can also use their own fonts?
 
