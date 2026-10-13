@@ -1,0 +1,37 @@
+{
+  "servers": {
+    "eslint": {
+      "settings": {
+        "": {
+          "validate": "on",
+          "packageManager": "npm",
+          "useESLintClass": false,
+          "useFlatConfig": true,
+          "experimental": {},
+          "codeAction": {
+            "disableRuleComment": {
+              "enable": true,
+              "location": "separateLine"
+            },
+            "showDocumentation": {
+              "enable": true
+            }
+          },
+          "codeActionOnSave": {
+            "mode": "all"
+          },
+          "format": false,
+          "quiet": false,
+          "onIgnoredFiles": "off",
+          "options": {},
+          "rulesCustomizations": [],
+          "run": "onType",
+          "problems": {
+            "shortenToSingleLine": false
+          },
+          "nodePath": null
+        }
+      }
+    }
+  }
+}

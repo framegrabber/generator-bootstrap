@@ -15,6 +15,8 @@ npm run new-generator -- <id> "<Name>"   # scaffold src/generators/<id>/
 
 CI (`.github/workflows/deploy.yml`) runs lint, unit tests, build, and e2e before deploying to Pages.
 
+Language servers are devDependencies (`typescript-language-server`, and `vscode-langservers-extracted` for ESLint, JSON, CSS, and HTML), so editors and agents find them in `node_modules/.bin`. `.omp/lsp.json` passes the ESLint server its settings under the empty-string section key, because the server reads them via `workspace/configuration` with `section: ""`; without them every diagnostic pull fails on `workingDirectory`.
+
 ## Layout
 
 - `src/core/` — pure logic, no React or DOM. `types.ts` (contract), `params.ts` (spec checks, `validateParams`, `isVisible`), `manifold.ts` (WASM singleton, `withScope`, `meshFromManifold`), `geom.ts` (shared shapes: `roundedRect`, `throughHole`, `countersunkHole`), `bounds.ts`, `checks.ts` (`checkResult`: part contract and bed fit), `protocol.ts`.
