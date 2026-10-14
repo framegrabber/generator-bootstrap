@@ -26,20 +26,22 @@ export const MESH_FORMATS: readonly MeshFormat[] = [
   },
   {
     note:
-      "stl/: one STL per part, for any slicer. Files in one folder belong together; load them " +
-      "at once and keep their positions. _xN in a name means print N copies.",
-    // STL has no notion of copies, so the name carries the quantity. An assembly gets a folder
-    // whose files share coordinates, so a slicer lines them up when they are loaded together.
+      "*.stl: one STL per part, for any slicer. Files sharing a prefix (tag-plate.stl, " +
+      "tag-text.stl) print together: load them at once and keep their positions. -xN in a name " +
+      "means print N copies.",
+    // Flat, next to the 3MF: part names are unique, so no numbering or folders are needed. STL
+    // has no notion of copies or assemblies, so the name carries both; assembly parts share
+    // coordinates, so a slicer lines them up when they are loaded together.
     files: async (parts) =>
-      printGroups(parts).flatMap((group, index) => {
-        const copies = group.quantity > 1 ? `_x${group.quantity}` : "";
-        const stem = `${String(index + 1).padStart(2, "0")}_${sanitizeSegment(group.name)}${copies}`;
-        const stl = (part: Part) => meshToBinaryStl(part.mesh, `${APP.name} ${part.name}`);
-        if (!group.isAssembly) return [{ path: `stl/${stem}.stl`, data: stl(group.parts[0]) }];
-        return group.parts.map((part) => ({
-          path: `stl/${stem}/${sanitizeSegment(part.name)}.stl`,
-          data: stl(part),
-        }));
+      printGroups(parts).flatMap((group) => {
+        const copies = group.quantity > 1 ? `-x${group.quantity}` : "";
+        return group.parts.map((part) => {
+          const stem = group.isAssembly ? `${group.name}-${part.name}` : part.name;
+          return {
+            path: `${sanitizeSegment(stem)}${copies}.stl`,
+            data: meshToBinaryStl(part.mesh, `${APP.name} ${part.name}`),
+          };
+        });
       }),
   },
 ];

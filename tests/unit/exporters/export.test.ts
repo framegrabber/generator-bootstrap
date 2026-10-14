@@ -115,27 +115,27 @@ describe("exportEntries", () => {
     const entries = await exportEntries(input);
     expect(entries.map((e) => e.path)).toEqual([
       "fixture.3mf",
-      "stl/01_tag_x2.stl",
+      "tag-x2.stl",
       "notes.txt",
       "README.txt",
     ]);
     const readme = String(entries.at(-1)!.data);
     expect(readme).toContain("  tag x 2 (filament 1)");
-    expect(readme).toMatch(/Which file to use:\n {2}3MF: .*\n {2}stl\/: /);
+    expect(readme).toMatch(/Which file to use:\n {2}3MF: .*\n {2}\*\.stl: /);
     expect(readme).toContain("  careful");
   });
 
-  it("puts each assembly's STL files in one folder, quantity on the folder", async () => {
+  it("names STL files after their assembly and part, flat, with the copy count", async () => {
     const parts = [
       part("plate", { assembly: "tag", quantity: 3 }),
       part("text", { assembly: "tag", quantity: 3, color: "#ff0000" }),
       part("ring"),
     ];
     const entries = await exportEntries({ ...input, result: { parts } });
-    expect(entries.map((e) => e.path).filter((p) => p.startsWith("stl/"))).toEqual([
-      "stl/01_tag_x3/plate.stl",
-      "stl/01_tag_x3/text.stl",
-      "stl/02_ring.stl",
+    expect(entries.map((e) => e.path).filter((p) => p.endsWith(".stl"))).toEqual([
+      "tag-plate-x3.stl",
+      "tag-text-x3.stl",
+      "ring.stl",
     ]);
     expect(String(entries.at(-1)!.data)).toContain("  tag/text x 3 (filament 1, colour #ff0000)");
   });

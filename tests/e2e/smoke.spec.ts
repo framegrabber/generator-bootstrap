@@ -26,14 +26,9 @@ test("edit parameters, build, download a zip, and keep values across reload", as
     .filter((f) => !f.dir)
     .map((f) => f.name)
     .sort();
-  expect(names).toEqual([
-    "README.txt",
-    "name-tag.3mf",
-    "stl/01_tag/plate.stl",
-    "stl/01_tag/text.stl",
-  ]);
+  expect(names).toEqual(["README.txt", "name-tag.3mf", "tag-plate.stl", "tag-text.stl"]);
 
-  const stl = await zip.file("stl/01_tag/text.stl")!.async("uint8array");
+  const stl = await zip.file("tag-text.stl")!.async("uint8array");
   const triangles = new DataView(stl.buffer, stl.byteOffset, stl.byteLength).getUint32(80, true);
   expect(stl.byteLength).toBe(84 + 50 * triangles);
   expect(triangles).toBeGreaterThan(0);
