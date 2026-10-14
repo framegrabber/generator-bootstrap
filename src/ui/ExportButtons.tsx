@@ -7,7 +7,7 @@ import { useParams } from "../state/params-store";
 import { snapshotUrl } from "../state/persistence";
 import { buildZipFilename } from "../exporters/filename";
 import { downloadBlob, pickFile } from "../exporters/download";
-import { EXPORT_FORMATS, exportEntries, type ExportFormatId } from "../exporters/export";
+import { exportEntries } from "../exporters/export";
 import { bundleZip } from "../exporters/zip";
 import { parseSettingsFile, settingsJson } from "../exporters/settings";
 
@@ -17,7 +17,6 @@ export function ExportButtons() {
   const replace = useParams((s) => s.replace);
   const result = useBuild((s) => s.result);
   const exportable = useBuild(canExport);
-  const [format, setFormat] = useState<ExportFormatId>("stl");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -40,7 +39,6 @@ export function ExportButtons() {
       def,
       values,
       result,
-      format,
       reproduceUrl: snapshotUrl({ generator: generatorId, values }),
     });
     const label = def.exportLabel?.(values) ?? def.id;
@@ -61,23 +59,13 @@ export function ExportButtons() {
 
   return (
     <section className="actions">
-      <label className="field">
-        Export format
-        <select value={format} onChange={(e) => setFormat(e.target.value as ExportFormatId)}>
-          {Object.entries(EXPORT_FORMATS).map(([id, { label }]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
       <button
         type="button"
         className="primary"
         disabled={!exportable || working}
         onClick={() => void run(downloadZip)}
       >
-        Download ZIP
+        Download ZIP (3MF + STL)
       </button>
       <div className="row">
         <button type="button" disabled={working} onClick={() => void run(saveSettings)}>

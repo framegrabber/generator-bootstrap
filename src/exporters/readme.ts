@@ -7,7 +7,9 @@ export type ReadmeInput = {
   generatorName: string;
   params: readonly ParamSpec[];
   values: Params;
-  parts: readonly { name: string; quantity: number }[];
+  parts: readonly { name: string; quantity: number; color?: string; filament: number }[];
+  /** One line per mesh format in the ZIP, explaining what it is for. */
+  formatNotes: readonly string[];
   reproduceUrl: string;
   files: readonly string[];
   warnings: readonly string[];
@@ -21,7 +23,12 @@ export function buildReadme(input: ReadmeInput): string {
     lines.push(`  ${spec.label}: ${formatValue(spec, input.values[spec.key])}${unit}`);
   }
   lines.push("", "Parts to print:");
-  for (const part of input.parts) lines.push(`  ${part.name} x ${part.quantity}`);
+  for (const part of input.parts) {
+    const colour = part.color ? `, colour ${part.color}` : "";
+    lines.push(`  ${part.name} x ${part.quantity} (filament ${part.filament}${colour})`);
+  }
+  lines.push("", "Which file to use:");
+  for (const note of input.formatNotes) lines.push(`  ${note}`);
   lines.push("", "Reproduce this export:", input.reproduceUrl, "", "Files:");
   for (const file of input.files) lines.push(`  ${file}`);
   if (input.warnings.length > 0) {

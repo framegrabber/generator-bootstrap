@@ -9,7 +9,10 @@ async function downloadZip(page: Page): Promise<{ filename: string; zip: JSZip }
   const button = page.getByRole("button", { name: "Download ZIP" });
   await expect(button).toBeEnabled({ timeout: 30_000 });
   const [file] = await Promise.all([page.waitForEvent("download"), button.click()]);
-  return { filename: file.suggestedFilename(), zip: await JSZip.loadAsync(await readFile(await file.path())) };
+  return {
+    filename: file.suggestedFilename(),
+    zip: await JSZip.loadAsync(await readFile(await file.path())),
+  };
 }
 
 test("edit parameters, build, download a zip, and keep values across reload", async ({ page }) => {
@@ -23,7 +26,12 @@ test("edit parameters, build, download a zip, and keep values across reload", as
     .filter((f) => !f.dir)
     .map((f) => f.name)
     .sort();
-  expect(names).toEqual(["README.txt", "stl/01_tag/plate.stl", "stl/01_tag/text.stl"]);
+  expect(names).toEqual([
+    "README.txt",
+    "name-tag.3mf",
+    "stl/01_tag/plate.stl",
+    "stl/01_tag/text.stl",
+  ]);
 
   const stl = await zip.file("stl/01_tag/text.stl")!.async("uint8array");
   const triangles = new DataView(stl.buffer, stl.byteOffset, stl.byteLength).getUint32(80, true);
@@ -48,13 +56,16 @@ test("upload a font, embed coloured text, and export a two-colour 3MF", async ({
   await page.getByLabel("Text style").selectOption("embedded");
   await expect(page.getByLabel("Inlay depth")).toBeVisible();
   await page.getByLabel("Text colour").fill("#ff0000");
-  await page.getByLabel("Export format").selectOption("3mf");
 
   const { zip } = await downloadZip(page);
   const pkg = await JSZip.loadAsync(await zip.file("name-tag.3mf")!.async("uint8array"));
   const model = await pkg.file("3D/3dmodel.model")!.async("string");
   expect(model).toContain('displaycolor="#ff0000"');
   expect(model).toMatch(/<object id="\d+" type="model" name="tag"><components>/);
+  const settings = await pkg.file("Metadata/model_settings.config")!.async("string");
+  expect(settings).toContain(
+    '<metadata key="name" value="text"/><metadata key="extruder" value="2"/>',
+  );
   const readme = await zip.file("README.txt")!.async("string");
   expect(readme).toMatch(/Font: uploaded font, SHA-256 [0-9a-f]{64}/);
 
