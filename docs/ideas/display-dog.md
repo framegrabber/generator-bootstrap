@@ -1,0 +1,89 @@
+# Display dog generator
+
+Status: planned, not started.
+
+## Problem Statement
+How might we let people who own a small round display (or an ESP32 board with one built in) generate a cute, printable dog enclosure that is sized to their hardware, shaped by a handful of character params, and assembles without glue or support material?
+
+## Recommended Direction
+One generator, `display-dog`, built from signed-distance functions meshed with `Manifold.levelSet`, the approach proven by the spikes (`/tmp/robot-spike/dog.mjs`, `robot.mjs`, `robot2.mjs`): head and torso ellipsoids, ears, snout, legs and tail smooth-blended (`smin`), hollowed by subtracting a second level set of the head and torso only, inset by the wall thickness. Appendages stay solid, so ears and tails never get walls too thin to print. Display window, module pocket, USB-C opening and neck ring are ordinary manifold booleans afterwards. SDF primitives and `smin` go into a shared `src/core/sdf.ts` (worker-only), with closed-form volume tests like `geom.ts`.
+
+**The display drives the size.** The user picks a display; its outline and thickness set a flat face pad (round for round displays) plus `faceMargin`, and the head grows to fit. Character params are proportions on top of that. A dog the screen doesn't fit cannot be generated, which avoids the spike's loose-bezel failure (pocket wider than the flat face).
+
+**The head splits front/back through the ears' mid-plane.** The front half carries the face, window, module pocket, snout and the front half of each ear; the back half carries the rest. Both print on the split face with no supports: each half-ear lies flat on the bed. The module drops into the front half from behind. The two halves are aligned by pins and held together by the neck: the body's friction ring clamps the head's neck collar, which spans both halves. The body prints upright on its flat base.
+
+**ESP32 all-in-one boards move the electronics into the head.** The board sits behind the screen, so the body cavity only holds a battery, and the USB-C opening goes in the head at the edge the board's port faces (`usbEdge`: left, right or top; down points into the neck and is unreachable). Display content can be rotated in firmware, so rotating the board physically costs nothing.
+
+**Accents** (nose, inner ears) are selectable: multi-colour in place (parts sharing coordinates in one `assembly`, for AMS printers; the inner ear sits on the half-ear's top face, so it prints in place) or glue-on (separate parts with locating recesses).
+
+### Display catalogue
+
+| Value | Visible area | Outline | Source |
+|---|---|---|---|
+| `gc9a01-module` | Ø32.4 | 38 × 45.5 × 4.5 mm (round panel on a board with a pin tab) | [datasheet](https://cdn.shopify.com/s/files/1/1509/1638/files/1_28inchTFT_datasheet.pdf?v=1691389826) |
+| `waveshare-s3-lcd-128` | Ø32.4 | board R18.25, USB-C tab 18.37 wide × 5.48 proud; thickness unknown | [wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.28) |
+| `waveshare-s3-touch-lcd-128` | Ø33.4 | glass Ø38.51, 40.36 tall with FPC tab, board R18.75, USB-C 9.92 wide; thickness unknown | [wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.28) |
+| `custom` | round or rect, user dimensions | user outline + thickness: the volume the rest is built around | — |
+
+### Parameters
+
+| Group | Param | Kind | Notes |
+|---|---|---|---|
+| Display | `display` | select | catalogue above |
+| | `customShape` | select | round / rect; `custom` only |
+| | `customDiameter` or `customWidth`, `customHeight`, `customCorner` | number | module outline |
+| | `customViewDiameter` or `customViewWidth`, `customViewHeight` | number | visible window |
+| | `customThickness` | number | glass front to board back |
+| | `usbEdge` | select | left / right / top; all-in-one boards only |
+| Shape | `faceMargin` | number | shell around the display; sets head size |
+| | `headDepth` | number % | of head width; floored by display thickness + walls |
+| | `bodySize` | number % | of head |
+| | `softness` | number | blend radius |
+| Dog | `earStyle` | select | pointy / round / floppy / none |
+| | `earLength`, `earWidth`, `earSpread`, `earTilt` | number | hidden for `none` |
+| | `snout` | number | 0 = none |
+| | `frontLegs` | boolean | |
+| | `tail` | select | none / stub / curl up / wag to one side |
+| Print | `wall` | number | |
+| | `neckFit` | number | friction-ring clearance |
+| | `battery` | select (+ numbers for custom) | none / common LiPo sizes / custom; sizes the body cavity |
+| | `accentMode` | select | in place (AMS) / glue-on |
+| | `bodyColor`, `accentColor` | color | |
+| | `detail` | select | draft / fine mesh edge length |
+
+### Validation and checks
+- Display module plus wall fits the flat face pad (by construction, plus a `validate` guard for custom sizes).
+- Battery box fits the body cavity: sample its corners and edges against the inner SDF, require ≥ wall.
+- Ear thickness at the thinnest point ≥ 1.2 mm.
+- Every part decomposes to exactly one body (the spikes produced loose tail tips, snout slices and a floating bezel ring until tuned).
+- Head halves: the split plane leaves the whole module pocket in the front half.
+
+## Key Assumptions to Validate
+- [ ] Builds stay interactive: spikes took ~3 s at 0.8 mm edge length in Node. Test: time a default build in the worker in Chromium; `detail: draft` targets ≤ 1 s.
+- [ ] Splitting through the ear mid-plane prints both half-ears flat without supports for every `earTilt` in range. Test: Bambu Studio CLI slice of front and back halves at min/max tilt; check support volume.
+- [ ] The neck friction ring holds both head halves and the body together without glue at a printable clearance. Test: physical print of a tolerance coupon at 3 clearances.
+- [ ] Waveshare board thickness and USB-C depth. Test: caliper or STEP file; until then those catalogue entries are blocked.
+- [ ] In-place inner-ear inlays slice as one multi-material object with the accent on filament 2. Test: Bambu Studio CLI, read `model_settings.config`.
+- [ ] Inset level set gives a wall within ±0.3 mm of `wall` in blended regions (smin is not an exact distance). Test: unit test sampling wall thickness on the built shell.
+- [ ] Preview looks smooth enough: the preview currently flat-shades every triangle. Test: screenshot at default detail; if faceted, add angle-based smooth normals in `Preview.tsx`.
+
+## MVP Scope
+In:
+- `src/core/sdf.ts`: sphere, ellipsoid, capsule, round cone, round box, round cylinder, `smin`, with volume tests.
+- `display-dog` generator: the parameter table above, the three catalogue displays plus custom round/rect, front/back head split through the ear plane, alignment pins, neck friction ring, body with battery cavity, USB-C opening per `usbEdge`, accents in both modes.
+- Validation rules at their boundaries; single-body check per part.
+- README note per part on print orientation.
+- Smooth preview shading if the screenshot check shows facets.
+
+## Not Doing (and Why)
+- Species presets (cat, bear, bunny): the codebase has no preset mechanism; ear styles already cover cat/fox/bear shapes.
+- Rectangular catalogue displays (ST7789, OLED, LilyGO T-Display): custom rect covers them; add catalogue entries on demand.
+- Other poses, standing or lying dogs: one sitting pose keeps the param count sane.
+- Screw or magnet joints: friction ring chosen; magnets can be added as another `join` option later.
+- Speaker grilles, buttons, sensors: hardware varies too much; custom holes are a separate feature.
+- Uploading a sculpted mesh: non-manifold meshes need repair; revisit if users ask.
+- Chest lettering: possible with `textOutline`, but on a curved surface it needs projection; later.
+
+## Open Questions
+- Common LiPo sizes for the `battery` select (e.g. 502030, 602030, 803040): pick from what fits a ~45 mm body.
+- Waveshare board thickness (blocks two catalogue entries).
