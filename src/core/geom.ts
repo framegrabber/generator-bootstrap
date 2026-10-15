@@ -1,5 +1,6 @@
-import type { CrossSection, Manifold } from "manifold-3d";
+import type { CrossSection, Manifold, Vec3 } from "manifold-3d";
 import type { WasmScope } from "./manifold";
+import type { Box3, Sdf } from "./sdf";
 import type { ManifoldLib } from "./types";
 
 /**
@@ -71,4 +72,27 @@ export function countersunkHole(
     ]),
   );
   return scope.track(wasm.Manifold.union([shaft, sink]));
+}
+
+/**
+ * Meshes a signed distance function (negative inside, see sdf.ts) into a solid. `bounds` must
+ * contain the whole shape with some margin; anything reaching the bounds is closed off flat.
+ * `edgeLength` is the approximate triangle size and dominates run time (halving it costs ~8x).
+ * `inset` > 0 shrinks the surface inward by that distance, for hollowing.
+ */
+export function solidFromSdf(
+  { wasm, scope }: Geom,
+  sdf: Sdf,
+  bounds: Box3,
+  edgeLength: number,
+  inset = 0,
+): Manifold {
+  // manifold-3d's level sets are positive inside, the opposite of sdf.ts.
+  const box = {
+    min: [bounds.min[0], bounds.min[1], bounds.min[2]] satisfies Vec3,
+    max: [bounds.max[0], bounds.max[1], bounds.max[2]] satisfies Vec3,
+  };
+  return scope.track(
+    wasm.Manifold.levelSet((p) => -sdf([p[0], p[1], p[2]]), box, edgeLength, inset),
+  );
 }
