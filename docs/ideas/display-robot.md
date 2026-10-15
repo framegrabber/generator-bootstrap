@@ -1,6 +1,12 @@
 # Display robot generator and the shared character kit
 
-Status: planned.
+Status: implemented (commits 6a77f3a kit extraction, d04dace robot). Deviations from the plan:
+- The culled blending (`blendTerms`, `CULL_FACTOR`) also moved into the kit; both characters use it.
+- Accents are clipped to the finished shell: a skin cap on an ear pod otherwise filled the USB-C opening.
+- An accent may be several patches (both ear pods); only body pieces warn about loose pieces.
+- With USB-C on a side, the ear pods move to the port's depth, so the cable comes out through the middle of the ear (the slot otherwise notched the pod's edge). USB-C on top is rejected while there is an antenna.
+- The kit lives in `src/characters/` as three modules (`hardware.ts`, `kit.ts`, `assemble.ts`), not five; face and cut helpers sit together in `kit.ts`.
+- Checked: 155 unit tests (all 24 dog tests unedited through the refactor), e2e, Bambu Studio CLI import (objects face, rear, torso, whole; accents on filament 2), screenshots of the assembled and print views. Not printed.
 
 ## Problem Statement
 How might we add a cute display robot without copying the display dog's 1,400 lines, so the dog, the robot, and later characters share one implementation of the hardware, cuts, accents, and print layout?
