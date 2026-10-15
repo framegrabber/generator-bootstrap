@@ -10,13 +10,18 @@ describe.each(GENERATORS.map((def) => [def.id, def] as const))("generator %s", (
     expect(validateParams(def, defaultParams(def.params))).toEqual([]);
   });
 
-  it("builds its defaults into closed, printable parts without warnings", async () => {
-    const result = await buildWith(id);
-    expect(result.warnings).toEqual([]);
-    for (const part of result.parts) {
-      expect(signedVolume(part.mesh), `part ${part.name} volume`).toBeGreaterThan(0);
-    }
-  });
+  // Organic generators mesh at full detail here: ~2 s locally, several on a CI runner.
+  it(
+    "builds its defaults into closed, printable parts without warnings",
+    { timeout: 60_000 },
+    async () => {
+      const result = await buildWith(id);
+      expect(result.warnings).toEqual([]);
+      for (const part of result.parts) {
+        expect(signedVolume(part.mesh), `part ${part.name} volume`).toBeGreaterThan(0);
+      }
+    },
+  );
 });
 
 describe("collectGenerators", () => {
