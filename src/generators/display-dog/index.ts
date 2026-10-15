@@ -1,21 +1,12 @@
-import { str } from "../../core/params";
-import type { GeneratorDef, Params, ValidationIssue } from "../../core/types";
-import { BATTERIES, DISPLAYS } from "./catalogue";
-import { dogLayout, neckHeightAt, placeBattery, selectedBattery, selectedModule } from "./layout";
-
-const is =
-  (key: string, ...options: string[]) =>
-  (values: Params) =>
-    options.includes(String(values[key]));
-const isCustom = is("display", "custom");
-const isCustomRound = (v: Params) => isCustom(v) && v.customShape === "round";
-const hasUsb = (v: Params) =>
-  Object.entries(DISPLAYS).some(([id, d]) => id === v.display && d.module.usb);
-const isCustomRect = (v: Params) => isCustom(v) && v.customShape === "rect";
+import { batteryParams, displayParams, validateDisplay } from "../../characters/hardware";
+import { cutParams, headParams, printParams, validateCharacter } from "../../characters/kit";
+import type { GeneratorDef } from "../../core/types";
+import { dogLayout } from "./layout";
 
 /**
  * A sitting dog whose face is a round (or custom) display. The display sets the head size;
- * the rest are proportions. Geometry in build.ts, dimensions in layout.ts.
+ * the rest are proportions. Shared parts come from src/characters; the dog's shape is in
+ * layout.ts and its accents in build.ts.
  */
 const displayDog: GeneratorDef = {
   id: "display-dog",
@@ -23,114 +14,8 @@ const displayDog: GeneratorDef = {
   description:
     "A sitting dog enclosure built around a small display: head in two halves, body with a neck socket.",
   params: [
-    {
-      kind: "select",
-      key: "display",
-      label: "Display",
-      group: "Display",
-      default: "waveshare-s3-touch-lcd-128",
-      options: [
-        ...Object.entries(DISPLAYS).map(([value, d]) => ({ value, label: d.label })),
-        { value: "custom", label: "Custom" },
-      ],
-      help: "Board thicknesses are estimates; check yours with calipers and use Custom if it differs.",
-    },
-    {
-      kind: "select",
-      key: "usbEdge",
-      label: "USB-C faces",
-      group: "Display",
-      default: "right",
-      options: [
-        { value: "right", label: "Right" },
-        { value: "left", label: "Left" },
-        { value: "top", label: "Top" },
-      ],
-      visibleWhen: hasUsb,
-      help: "Mount the board turned this way and rotate the picture in firmware.",
-    },
-    {
-      kind: "select",
-      key: "customShape",
-      label: "Shape",
-      group: "Display",
-      default: "round",
-      options: [
-        { value: "round", label: "Round" },
-        { value: "rect", label: "Rectangle" },
-      ],
-      visibleWhen: isCustom,
-    },
-    ...(
-      [
-        ["customDiameter", "Module diameter", 40, isCustomRound],
-        ["customViewDiameter", "Visible diameter", 34, isCustomRound],
-        ["customWidth", "Module width", 40, isCustomRect],
-        ["customHeight", "Module height", 30, isCustomRect],
-        ["customViewWidth", "Visible width", 34, isCustomRect],
-        ["customViewHeight", "Visible height", 24, isCustomRect],
-      ] as const
-    ).map(([key, label, value, visibleWhen]) => ({
-      kind: "number" as const,
-      key,
-      label,
-      group: "Display",
-      unit: "mm",
-      default: value,
-      min: 10,
-      max: 80,
-      step: 0.1,
-      visibleWhen,
-    })),
-    {
-      kind: "number",
-      key: "customCorner",
-      label: "Module corner radius",
-      group: "Display",
-      unit: "mm",
-      default: 2,
-      min: 0,
-      max: 20,
-      step: 0.5,
-      visibleWhen: isCustomRect,
-    },
-    {
-      kind: "number",
-      key: "customThickness",
-      label: "Module thickness",
-      group: "Display",
-      unit: "mm",
-      default: 6,
-      min: 1,
-      max: 25,
-      step: 0.1,
-      visibleWhen: isCustom,
-      help: "Front of the glass to the back of the tallest part behind it.",
-    },
-    {
-      kind: "number",
-      key: "faceMargin",
-      label: "Face margin",
-      group: "Shape",
-      unit: "mm",
-      default: 5,
-      min: 4,
-      max: 20,
-      step: 0.5,
-      help: "Flat face around the display; sets the head size.",
-    },
-    {
-      kind: "number",
-      key: "headDepth",
-      label: "Head depth",
-      group: "Shape",
-      unit: "%",
-      default: 80,
-      min: 50,
-      max: 120,
-      step: 1,
-      help: "Front to back, relative to the width. Never less than the display needs.",
-    },
+    ...displayParams(),
+    ...headParams(),
     {
       kind: "number",
       key: "bodySize",
@@ -239,210 +124,20 @@ const displayDog: GeneratorDef = {
         { value: "none", label: "None" },
       ],
     },
-    {
-      kind: "select",
-      key: "battery",
-      label: "Battery",
-      group: "Battery",
-      default: "502030",
-      options: [
-        { value: "none", label: "None (USB powered)" },
-        ...Object.entries(BATTERIES).map(([value, b]) => ({ value, label: b.label })),
-        { value: "custom", label: "Custom" },
-      ],
-      help: "Lies flat behind the display; the head must have room for it.",
-    },
-    ...(
-      [
-        ["batteryThickness", "Battery thickness", 5],
-        ["batteryWidth", "Battery width", 20],
-        ["batteryLength", "Battery length", 30],
-      ] as const
-    ).map(([key, label, value]) => ({
-      kind: "number" as const,
-      key,
-      label,
-      group: "Battery",
-      unit: "mm",
-      default: value,
-      min: 1,
-      max: 60,
-      step: 0.5,
-      visibleWhen: is("battery", "custom"),
-    })),
-    {
-      kind: "boolean",
-      key: "neckCut",
-      label: "Cut head from body",
-      group: "Cuts",
-      default: true,
-      help: "The head plugs onto the body with a peg. Off: head and body print as one piece.",
-    },
-    {
-      kind: "number",
-      key: "neckCutOffset",
-      label: "Neck cut height",
-      group: "Cuts",
-      unit: "mm",
-      default: 0,
-      min: -15,
-      max: 15,
-      step: 0.5,
-      visibleWhen: (v) => v.neckCut === true,
-      help: "Up or down from just under the head. Keep it clear of the chin and tail.",
-    },
-    {
-      kind: "number",
-      key: "neckCutTilt",
-      label: "Neck cut tilt",
-      group: "Cuts",
-      unit: "°",
-      default: 0,
-      min: -30,
-      max: 30,
-      step: 1,
-      visibleWhen: (v) => v.neckCut === true,
-      help: "Positive raises the front (under the chin), negative raises the back (over the tail).",
-    },
-    {
-      kind: "boolean",
-      key: "headSplit",
-      label: "Split head front/back",
-      group: "Cuts",
-      default: true,
-      help: "Opens the head for the display. Off: the display cannot be fitted.",
-    },
-    {
-      kind: "number",
-      key: "headSplitOffset",
-      label: "Head split position",
-      group: "Cuts",
-      unit: "mm",
-      default: 0,
-      min: -15,
-      max: 15,
-      step: 0.5,
-      visibleWhen: (v) => v.headSplit === true,
-      help: "Back (+) or forward (−) from the ears' middle, where half-ears print flat.",
-    },
-    {
-      kind: "number",
-      key: "wall",
-      label: "Wall thickness",
-      group: "Print",
-      unit: "mm",
-      default: 2,
-      min: 1.2,
-      max: 4,
-      step: 0.1,
-    },
-    {
-      kind: "number",
-      key: "fit",
-      label: "Fit clearance",
-      group: "Print",
-      unit: "mm",
-      default: 0.2,
-      min: 0,
-      max: 0.6,
-      step: 0.05,
-      help: "Gap around the neck peg and the filament dowels.",
-    },
-    {
-      kind: "select",
-      key: "accentMode",
-      label: "Nose and inner ears",
-      group: "Print",
-      default: "inplace",
-      options: [
-        { value: "inplace", label: "Second colour, printed in place" },
-        { value: "glue", label: "Second colour, glued on" },
-        { value: "none", label: "Same colour" },
-      ],
-      help: "Printed in place needs a multi-colour printer.",
-    },
-    { kind: "color", key: "bodyColor", label: "Body colour", group: "Print", default: "#f1e6d6" },
-    {
-      kind: "color",
-      key: "accentColor",
-      label: "Accent colour",
-      group: "Print",
-      default: "#4a3428",
-      visibleWhen: (v) => v.accentMode !== "none",
-    },
-    {
-      kind: "select",
-      key: "detail",
-      label: "Mesh detail",
-      group: "Print",
-      default: "normal",
-      options: [
-        { value: "draft", label: "Draft (fast)" },
-        { value: "normal", label: "Normal" },
-        { value: "fine", label: "Fine (slow)" },
-      ],
-    },
+    ...batteryParams(),
+    ...cutParams("Back (+) or forward (−) from the ears' middle, where half-ears print flat."),
+    ...printParams({
+      accents: "Nose and inner ears",
+      glue: true,
+      bodyColor: "#f1e6d6",
+      accentColor: "#4a3428",
+    }),
   ],
   validate(values) {
-    const issues: ValidationIssue[] = [];
-    if (str(values, "display") === "custom") {
-      const module = selectedModule(values);
-      const lip = (outline: number, view: number, key: string, what: string) => {
-        if (view > outline - 1) {
-          issues.push({
-            key,
-            message: `Visible ${what} must be at least 1 mm smaller than the module`,
-          });
-        }
-      };
-      if (module.shape.kind === "round") {
-        lip(module.shape.diameter, module.shape.viewDiameter, "customViewDiameter", "diameter");
-      } else {
-        lip(module.shape.width, module.shape.viewWidth, "customViewWidth", "width");
-        lip(module.shape.height, module.shape.viewHeight, "customViewHeight", "height");
-        if (module.shape.corner > Math.min(module.shape.width, module.shape.height) / 2) {
-          issues.push({
-            key: "customCorner",
-            message: "Corner radius must be at most half the module's shorter side",
-          });
-        }
-      }
-    }
-    if (issues.length > 0) return issues;
+    const display = validateDisplay(values);
+    if (display.length > 0) return display;
     const L = dogLayout(values);
-    if (L.split.cut && L.split.y < L.pocketBack + 0.5) {
-      issues.push({
-        key: "headSplitOffset",
-        message: "The head split runs through the display pocket; move it back.",
-      });
-    }
-    if (L.neck.cut) {
-      // The hollow's floor runs wall + 2 above the cut, parallel to it; under the display it
-      // must stay a wall below the display's lowest point, front and back of the module.
-      const cos = Math.cos((L.neck.tilt * Math.PI) / 180);
-      const floorAt = (y: number) => neckHeightAt(L, y) + (L.wall + 2) / cos;
-      const displayBottom = L.cz - L.footprint.halfZ;
-      if (Math.max(floorAt(L.faceY), floorAt(L.pocketBack)) > displayBottom - L.wall) {
-        issues.push({
-          key: "neckCutOffset",
-          message: "The neck cut runs into the display; move it down or tilt it less.",
-        });
-      } else if (L.neck.z - (L.neck.pegLength + 1) * cos < L.body.center[2]) {
-        issues.push({
-          key: "neckCutOffset",
-          message: "The neck cut is too low for the neck peg; move it up.",
-        });
-      }
-    }
-    const pouch = selectedBattery(values);
-    if (pouch && !placeBattery(L, pouch)) {
-      issues.push({
-        key: "battery",
-        message:
-          "The battery does not fit behind the display. Increase the head depth or face margin, or pick a smaller battery.",
-      });
-    }
-    return issues;
+    return validateCharacter(values, L, L.body.center[2]);
   },
 };
 
