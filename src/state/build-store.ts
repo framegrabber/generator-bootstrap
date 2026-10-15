@@ -63,7 +63,8 @@ export function startBuildSync(build: BuildFn = buildGenerator, debounceMs = 150
       build(generatorId, values)
         .then(
           (result) => {
-            if (id === latestBuild) useBuild.setState({ result, resultKey: currentKey, error: null });
+            if (id === latestBuild)
+              useBuild.setState({ result, resultKey: currentKey, error: null });
           },
           (error: unknown) => {
             if (id === latestBuild) useBuild.setState({ error: errorMessage(error) });

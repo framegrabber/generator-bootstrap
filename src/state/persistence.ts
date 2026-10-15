@@ -1,8 +1,7 @@
 import { APP } from "../app-config";
 import { useParams } from "./params-store";
-import { restoreSnapshot, type Snapshot } from "./snapshot";
+import { querySnapshot, restoreSnapshot, snapshotQuery, type Snapshot } from "./snapshot";
 
-const URL_KEY = "p";
 const STORAGE_KEY = `${APP.slug}-params-v1`;
 const WRITE_DELAY_MS = 300;
 
@@ -24,10 +23,10 @@ function readStorage(): string | null {
   }
 }
 
-/** Absolute URL that reproduces `snapshot` when opened. */
+/** Absolute URL that reproduces `snapshot` when opened: `?g=<generator>&<changed values>`. */
 export function snapshotUrl(snapshot: Snapshot): string {
   const url = new URL(window.location.origin + window.location.pathname);
-  url.searchParams.set(URL_KEY, JSON.stringify(snapshot));
+  url.search = snapshotQuery(snapshot);
   return url.toString();
 }
 
@@ -38,7 +37,7 @@ export function snapshotUrl(snapshot: Snapshot): string {
  * failure is logged and never breaks editing. Call once from main.tsx; returns a stop function.
  */
 export function initPersistence(): () => void {
-  const fromUrl = parseJson(new URLSearchParams(window.location.search).get(URL_KEY));
+  const fromUrl = querySnapshot(window.location.search);
   useParams.getState().replace(restoreSnapshot(fromUrl ?? parseJson(readStorage())));
 
   let timer: number | undefined;

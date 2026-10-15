@@ -39,3 +39,69 @@ export function restoreSnapshot(
   const migrated = def.migrate ? def.migrate(rawValues) : rawValues;
   return { generator: def.id, values: mergeValues(def, migrated) };
 }
+
+/** Query key for the generator id; every other key is a param key. */
+const GENERATOR_KEY = "g";
+/** The original link format: the whole snapshot as JSON. Read, never written. */
+const LEGACY_KEY = "p";
+
+/**
+ * The snapshot as readable query parameters: `g=<generator>` plus `key=value` for each value
+ * that differs from its default. A default robot is `g=display-robot`. Defaults are left out,
+ * so a link follows a default when it changes. Param keys must not be "g" or "p".
+ */
+export function snapshotQuery(
+  snapshot: Snapshot,
+  generators: readonly GeneratorDef[] = GENERATORS,
+): string {
+  const query = new URLSearchParams({ [GENERATOR_KEY]: snapshot.generator });
+  const def = findGenerator(snapshot.generator, generators);
+  for (const spec of def?.params ?? []) {
+    const value = snapshot.values[spec.key];
+    if (value !== undefined && value !== spec.default) query.set(spec.key, String(value));
+  }
+  return query.toString();
+}
+
+/** Reads a query value back as the type its param expects; unknown keys are guessed. */
+function parseQueryValue(text: string, spec: GeneratorDef["params"][number] | undefined) {
+  const kind = spec?.kind;
+  if (kind === "number") return Number(text);
+  if (kind === "boolean") return text === "true" ? true : text === "false" ? false : text;
+  if (kind !== undefined) return text;
+  // An unknown key may be a renamed param that `migrate` still maps, so keep its likely type.
+  if (text === "true" || text === "false") return text === "true";
+  return text.trim() !== "" && Number.isFinite(Number(text)) ? Number(text) : text;
+}
+
+/**
+ * The raw snapshot a URL query describes, for `restoreSnapshot`: the readable form written by
+ * `snapshotQuery`, or the legacy `p=<json>` form still found in older links and READMEs.
+ * Undefined when the query has neither.
+ */
+export function querySnapshot(
+  search: string,
+  generators: readonly GeneratorDef[] = GENERATORS,
+): unknown {
+  const query = new URLSearchParams(search);
+  const generator = query.get(GENERATOR_KEY);
+  if (generator !== null) {
+    const def = findGenerator(generator, generators);
+    const values: Record<string, unknown> = {};
+    for (const [key, text] of query) {
+      if (key === GENERATOR_KEY) continue;
+      values[key] = parseQueryValue(
+        text,
+        def?.params.find((spec) => spec.key === key),
+      );
+    }
+    return { generator, values };
+  }
+  const legacy = query.get(LEGACY_KEY);
+  if (legacy === null) return undefined;
+  try {
+    return JSON.parse(legacy) as unknown;
+  } catch {
+    return undefined;
+  }
+}

@@ -77,6 +77,7 @@ describe("initPersistence", () => {
     expect(setItem).toHaveBeenCalledTimes(1);
     expect(setItem).toHaveBeenCalledWith(STORAGE_KEY, expect.stringContaining('"width":59'));
     expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(replaceState).toHaveBeenCalledWith(null, "", "https://example.test/?g=fixture&width=59");
     expect(useParams.getState().values.width).toBe(59);
   });
 });
