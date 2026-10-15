@@ -1,7 +1,7 @@
 import { str } from "../../core/params";
 import type { GeneratorDef, Params, ValidationIssue } from "../../core/types";
 import { BATTERIES, DISPLAYS } from "./catalogue";
-import { dogLayout, placeBattery, selectedBattery, selectedModule } from "./layout";
+import { dogLayout, neckHeightAt, placeBattery, selectedBattery, selectedModule } from "./layout";
 
 const is =
   (key: string, ...options: string[]) =>
@@ -292,6 +292,19 @@ const displayDog: GeneratorDef = {
       help: "Up or down from just under the head. Keep it clear of the chin and tail.",
     },
     {
+      kind: "number",
+      key: "neckCutTilt",
+      label: "Neck cut tilt",
+      group: "Cuts",
+      unit: "°",
+      default: 0,
+      min: -30,
+      max: 30,
+      step: 1,
+      visibleWhen: (v) => v.neckCut === true,
+      help: "Positive raises the front (under the chin), negative raises the back (over the tail).",
+    },
+    {
       kind: "boolean",
       key: "headSplit",
       label: "Split head front/back",
@@ -404,13 +417,17 @@ const displayDog: GeneratorDef = {
       });
     }
     if (L.neck.cut) {
+      // The hollow's floor runs wall + 2 above the cut, parallel to it; under the display it
+      // must stay a wall below the display's lowest point, front and back of the module.
+      const cos = Math.cos((L.neck.tilt * Math.PI) / 180);
+      const floorAt = (y: number) => neckHeightAt(L, y) + (L.wall + 2) / cos;
       const displayBottom = L.cz - L.footprint.halfZ;
-      if (L.neck.z + L.wall + 2 > displayBottom - L.wall) {
+      if (Math.max(floorAt(L.faceY), floorAt(L.pocketBack)) > displayBottom - L.wall) {
         issues.push({
           key: "neckCutOffset",
-          message: "The neck cut runs into the display; move it down.",
+          message: "The neck cut runs into the display; move it down or tilt it less.",
         });
-      } else if (L.neck.z - L.neck.pegLength - 1 < L.body.center[2]) {
+      } else if (L.neck.z - (L.neck.pegLength + 1) * cos < L.body.center[2]) {
         issues.push({
           key: "neckCutOffset",
           message: "The neck cut is too low for the neck peg; move it up.",

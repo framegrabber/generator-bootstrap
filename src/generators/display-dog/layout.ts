@@ -102,13 +102,15 @@ export type DogLayout = {
   pad: { round: boolean; halfX: number; halfZ: number };
   body: Blob;
   /**
-   * `z` is where the head comes off (the neck cut, when enabled; the hollow's floor sits above
-   * it either way). `anatomyZ` is the default cut height, which ears, snout, legs, and tail are
-   * sized against, so moving the cut never reshapes the dog.
+   * `z` is the neck cut's height on the neck axis (x = y = 0) and `tilt` (degrees) tips it
+   * about x; the hollow's floor sits parallel to it either way. `anatomyZ` is the default cut
+   * height, which ears, snout, legs, and tail are sized against, so moving the cut never
+   * reshapes the dog.
    */
   neck: {
     cut: boolean;
     z: number;
+    tilt: number;
     anatomyZ: number;
     radius: number;
     pegRadius: number;
@@ -220,6 +222,7 @@ export function dogLayout(values: Params): DogLayout {
   const neck = {
     cut: neckCut,
     z: anatomyZ + (neckCut ? num(values, "neckCutOffset") : 0),
+    tilt: neckCut ? num(values, "neckCutTilt") : 0,
     anatomyZ,
     radius: neckRadius,
     pegRadius: neckRadius - wall - 1,
@@ -586,7 +589,9 @@ export function outerBounds(L: DogLayout): Box3 {
 export function placeBattery(L: DogLayout, pouch: readonly [number, number, number]): Box3 | null {
   const [t, w, l] = pouch.map((v, i) => v + BATTERY_ALLOWANCE[i]);
   const core = headCoreSdf(L);
-  const floor = L.neck.z + L.wall + 2;
+  const normal = neckNormal(L);
+  // Distance above the neck cut, along its normal.
+  const aboveCut = (p: Vec3) => normal[1] * p[1] + normal[2] * (p[2] - L.neck.z);
 
   const steps = 4;
   const fits = (box: Box3) => {
@@ -596,7 +601,7 @@ export function placeBattery(L: DogLayout, pouch: readonly [number, number, numb
           const at = (a: 0 | 1 | 2, s: number) =>
             box.min[a] + ((box.max[a] - box.min[a]) * s) / steps;
           const p: Vec3 = [at(0, i), at(1, j), at(2, m)];
-          if (core(p) > -(L.wall + 0.2) || p[2] < floor + 0.2) return false;
+          if (core(p) > -(L.wall + 0.2) || aboveCut(p) < L.wall + 2.2) return false;
           if (L.split.cut && Math.abs(p[1] - L.split.y) <= BOSS.half + 0.2) {
             for (const [bx, bz] of L.bosses) {
               if (Math.hypot(p[0] - bx, p[2] - bz) < BOSS.radius + 0.2) return false;
@@ -621,4 +626,15 @@ export function placeBattery(L: DogLayout, pouch: readonly [number, number, numb
     }
   }
   return null;
+}
+
+/** Unit normal of the neck cut. A positive tilt leans it toward +y, raising the cut's front. */
+export function neckNormal(L: DogLayout): Vec3 {
+  const t = (L.neck.tilt * Math.PI) / 180;
+  return [0, Math.sin(t), Math.cos(t)];
+}
+
+/** Height of the neck cut at depth y: a positive tilt raises the front (under the chin). */
+export function neckHeightAt(L: DogLayout, y: number): number {
+  return L.neck.z - y * Math.tan((L.neck.tilt * Math.PI) / 180);
 }

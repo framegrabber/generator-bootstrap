@@ -207,20 +207,9 @@ function PartMesh({ mesh, color, matrix }: { mesh: Mesh; color: string; matrix: 
 
 const CUT_COLOR = "#ff9f43";
 
-/** A cut as a translucent rectangle: the face of its bounds at axis = at. */
+/** A cut as a translucent rectangle through its four corners. */
 function CutPlaneMesh({ plane }: { plane: CutPlane }) {
-  const corners = useMemo(() => {
-    const { axis, at, bounds } = plane;
-    const [u, v] = [0, 1, 2].filter((k) => k !== axis);
-    const corner = (a: "min" | "max", b: "min" | "max"): Vec3 => {
-      const p: Vec3 = [0, 0, 0];
-      p[axis] = at;
-      p[u] = bounds[a][u];
-      p[v] = bounds[b][v];
-      return p;
-    };
-    return [corner("min", "min"), corner("max", "min"), corner("max", "max"), corner("min", "max")];
-  }, [plane]);
+  const { corners } = plane;
   const geometry = useMemo(() => {
     const g = new BufferGeometry();
     g.setAttribute("position", new BufferAttribute(new Float32Array(corners.flat()), 3));

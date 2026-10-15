@@ -1,5 +1,4 @@
 import type { CrossSection, Manifold } from "manifold-3d";
-import type { Vec3 } from "../../core/bounds";
 import { solidFromSdf, type Geom } from "../../core/geom";
 import {
   IDENTITY,
@@ -24,6 +23,8 @@ import {
   dogLayout,
   headBounds,
   headCoreSdf,
+  neckHeightAt,
+  neckNormal,
   outerBounds,
   outerSdf,
   type DogLayout,
@@ -69,9 +70,17 @@ const build: GeneratorBuild = (values, { wasm }) => {
           z,
         ]),
       );
-    /** Cylinder along z on the neck axis. */
-    const cylinderZ = (radius: number, z0: number, z1: number) =>
-      t(t(M.cylinder(z1 - z0, radius, radius, SEGMENTS)).translate([0, 0, z0]));
+    // The neck cut's frame: its point on the neck axis, z along the cut's normal.
+    const neckFrame = multiply(translation([0, 0, L.neck.z]), rotationX(-L.neck.tilt));
+    const normal = neckNormal(L);
+    const cutOffset = normal[2] * L.neck.z; // normal · (0, 0, neck.z)
+    /** Cylinder on the neck axis, perpendicular to the neck cut, from `z0` to `z1` along it. */
+    const neckCylinder = (radius: number, z0: number, z1: number) =>
+      t(
+        t(t(M.cylinder(z1 - z0, radius, radius, SEGMENTS)).translate([0, 0, z0])).transform(
+          neckFrame,
+        ),
+      );
     const roundedRect = (w: number, h: number, r: number) =>
       r > 0
         ? t(t(CS.square([w - 2 * r, h - 2 * r], true)).offset(r, "Round", 2, 32))
@@ -107,10 +116,11 @@ const build: GeneratorBuild = (values, { wasm }) => {
     const outer = t(
       solidFromSdf(geom, outerSdf(L), outerBounds(L), L.meshEdge).trimByPlane([0, 0, 1], 0),
     );
+    // The hollow's floor sits wall + 2 above the neck cut and parallel to it.
     const inner = t(
       solidFromSdf(geom, headCoreSdf(L), headBounds(L), L.meshEdge, L.wall).trimByPlane(
-        [0, 0, 1],
-        L.neck.z + L.wall + 2,
+        normal,
+        cutOffset + L.wall + 2,
       ),
     );
     const rimDepth = Math.min(L.module.thickness, POCKET_RIM);
@@ -194,10 +204,11 @@ const build: GeneratorBuild = (values, { wasm }) => {
     let upper = shell;
     let lower: Manifold | null = null;
     if (L.neck.cut) {
-      const { z, pegRadius, pegLength } = L.neck;
-      const [above, below] = shell.splitByPlane([0, 0, 1], z).map(t);
-      upper = t(M.union([above, cylinderZ(pegRadius, z - pegLength, z + 1)]));
-      lower = t(below.subtract(cylinderZ(pegRadius + L.fit, z - pegLength - 0.5, z + 1)));
+      // The peg and socket run along the cut's normal, so the head slides straight on.
+      const { pegRadius, pegLength } = L.neck;
+      const [above, below] = shell.splitByPlane(normal, cutOffset).map(t);
+      upper = t(M.union([above, neckCylinder(pegRadius, -pegLength, 1)]));
+      lower = t(below.subtract(neckCylinder(pegRadius + L.fit, -pegLength - 0.5, 1)));
     }
 
     /** A piece in its print pose: `pose` maps assembled coordinates to it. */
@@ -220,13 +231,15 @@ const build: GeneratorBuild = (values, { wasm }) => {
         { name: `${prefix}back`, solid: back, pose: backDown(splitY), color: bodyColor },
       );
     } else {
-      // An unsplit head stands on its peg; the uncut dog on its base.
-      const lift = L.neck.cut ? L.neck.pegLength - L.neck.z : 0;
+      // An unsplit head stands upright on its peg; the uncut dog on its base.
       const name = L.neck.cut ? "head" : "dog";
+      const pose = L.neck.cut
+        ? multiply(translation([0, 0, L.neck.pegLength]), invertRigid(neckFrame))
+        : IDENTITY;
       pieces.push({
         name,
         solid: upper,
-        pose: translation([0, 0, lift]),
+        pose,
         color: bodyColor,
         face: true,
       });
@@ -309,15 +322,32 @@ const build: GeneratorBuild = (values, { wasm }) => {
 /** The enabled cuts, sized to the dog (the head split only spans the head above the neck). */
 function cutPlanes(L: DogLayout): CutPlane[] {
   const { min, max } = outerBounds(L);
-  const top: Vec3 = [max[0], max[1], max[2]];
-  const at = (z: number): Vec3 => [min[0], min[1], z];
+  const [x0, x1, y0, y1, top] = [min[0], max[0], min[1], max[1], max[2]];
   const planes: CutPlane[] = [];
   if (L.neck.cut) {
-    planes.push({ name: "Neck cut", axis: 2, at: L.neck.z, bounds: { min: at(0), max: top } });
+    const [front, back] = [neckHeightAt(L, y0), neckHeightAt(L, y1)];
+    planes.push({
+      name: "Neck cut",
+      corners: [
+        [x0, y0, front],
+        [x1, y0, front],
+        [x1, y1, back],
+        [x0, y1, back],
+      ],
+    });
   }
   if (L.split.cut) {
-    const bounds = { min: at(L.neck.cut ? L.neck.z : 0), max: top };
-    planes.push({ name: "Head split", axis: 1, at: L.split.y, bounds });
+    const s = L.split.y;
+    const bottom = L.neck.cut ? neckHeightAt(L, s) : 0;
+    planes.push({
+      name: "Head split",
+      corners: [
+        [x0, s, bottom],
+        [x1, s, bottom],
+        [x1, s, top],
+        [x0, s, top],
+      ],
+    });
   }
   return planes;
 }

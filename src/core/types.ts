@@ -1,5 +1,5 @@
 import type { ManifoldToplevel } from "manifold-3d";
-import type { Bounds } from "./bounds";
+import type { Vec3 } from "./bounds";
 import type { Mat4 } from "./mat4";
 
 export type ManifoldLib = ManifoldToplevel;
@@ -95,10 +95,10 @@ export type Part = {
 export type ExtraFile = { path: string; content: string };
 
 /**
- * An axis-aligned plane where the model is cut into parts, drawn in the assembled view as the
- * face of `bounds` at `axis` = `at` (assembled frame).
+ * Where the model is cut into parts: a rectangle (four corners in order, assembled frame) the
+ * assembled view draws over the model. Preview only.
  */
-export type CutPlane = { name: string; axis: 0 | 1 | 2; at: number; bounds: Bounds };
+export type CutPlane = { name: string; corners: [Vec3, Vec3, Vec3, Vec3] };
 
 export type GeneratorResult = {
   parts: Part[];

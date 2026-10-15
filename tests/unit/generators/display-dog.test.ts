@@ -9,7 +9,7 @@ import {
   outerBounds,
 } from "../../../src/generators/display-dog/layout";
 import { boundsOf } from "../../../src/core/bounds";
-import { transformBounds } from "../../../src/core/mat4";
+import { applyPoint, transformBounds } from "../../../src/core/mat4";
 import { buildWith, paramsFor, signedVolume } from "./helpers";
 
 const ID = "display-dog";
@@ -165,6 +165,41 @@ describe("display-dog build", { timeout: 60_000 }, () => {
     expect(union.min[2]).toBeCloseTo(0, 3);
     const front = transformBounds(pieces[0].assembled!, boundsOf([pieces[0].mesh])!);
     expect(front.max[1]).toBeCloseTo(0, 3);
+  });
+
+  it("tilts the neck cut: the body's top lies on the tilted plane, front and back", async () => {
+    const tilt = -15; // raises the back; a positive tilt this steep would reach the display
+    const overrides = { neckCutTilt: tilt, tail: "none" };
+    const L = dogLayout(paramsFor(ID, overrides));
+    const result = await buildWith(ID, draft(overrides));
+    const part = result.parts.find((p) => p.name === "body")!;
+    const body = part.mesh.positions;
+    const slope = Math.tan((tilt * Math.PI) / 180);
+    // Height above the tilted plane z = neck.z - y·tan(tilt); the cut face sits exactly on it.
+    let [highest, frontTop, backTop] = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < body.length; i += 3) {
+      // Back from the print layout's shift into the assembled frame.
+      const [, y, z] = applyPoint(part.assembled!, [body[i], body[i + 1], body[i + 2]]);
+      highest = Math.max(highest, z + y * slope - L.neck.z);
+      if (y < -5) frontTop = Math.max(frontTop, z);
+      if (y > 5) backTop = Math.max(backTop, z);
+    }
+    expect(highest).toBeCloseTo(0, 2);
+    expect(backTop).toBeGreaterThan(frontTop);
+  });
+
+  it("stands an unsplit head on its tilted peg", async () => {
+    const result = await buildWith(
+      ID,
+      draft({ neckCutTilt: -20, headSplit: false, accentMode: "none" }),
+    );
+    expect(result.parts.map((p) => p.name)).toEqual(["head", "body", "whole"]);
+    // The only warning is the expected one about the closed head; the head rests on the bed.
+    expect(result.warnings).toEqual([
+      "The head is not split, so the display cannot be fitted after printing.",
+    ]);
+    const head = boundsOf([result.parts[0].mesh])!;
+    expect(head.min[2]).toBeCloseTo(0, 3);
   });
 
   it("moves the neck cut by its offset: the body grows by the same height", async () => {
