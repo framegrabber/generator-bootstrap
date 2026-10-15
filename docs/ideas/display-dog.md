@@ -1,6 +1,14 @@
 # Display dog generator
 
-Status: planned, not started.
+Status: implemented (commits 4309da7, a2730bf). Deviations from the plan below:
+- The battery sits in the head, flat behind the display, where the all-in-one boards already put the electronics. The body is solid (slicer infill) with no battery cavity, so no neck passage is needed.
+- `earTilt` was dropped. A tilted ear leaves the split plane: half-ears stop lying flat and the inner-ear accent shrank to dots.
+- Alignment pins became holes on both halves for 1.75 mm filament dowels. Both halves print on the split face, so neither can carry a pin.
+- The "ear thickness ≥ 1.2 mm" check is enforced by construction (ear tip radius 1.2 mm, half-thickness ≥ 0.225 × width) instead of by validation.
+- `sdf.ts` is pure math and main-thread safe, not worker-only: `validate` samples the head SDF to check the battery fits.
+- The preview shading change was not needed: at default detail the flat-shaded preview shows no visible facets.
+- Meshing cost needed work: culling shapes by bounding box, `Math.sqrt` instead of `Math.hypot`, and a 1 mm default edge brought the default build from 6.3 s to about 1.7 s in Node and about 3 s in the browser.
+- Bambu Studio 2.7.1 CLI: in-place accents load as object "face" with head-front on filament 1 and nose and inner ears on filament 2; glue-on accents load as separate objects on filament 2. Not yet sliced or printed.
 
 ## Problem Statement
 How might we let people who own a small round display (or an ESP32 board with one built in) generate a cute, printable dog enclosure that is sized to their hardware, shaped by a handful of character params, and assembles without glue or support material?
