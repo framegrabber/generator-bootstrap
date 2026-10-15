@@ -35,6 +35,7 @@ test("build the default dog and download a zip with every part", async ({ page }
     "face-head-front.stl",
     "face-nose.stl",
     "head-back.stl",
+    "whole.stl",
   ]);
 });
 

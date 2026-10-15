@@ -101,7 +101,21 @@ export type DogLayout = {
   head: { radii: Vec3 };
   pad: { round: boolean; halfX: number; halfZ: number };
   body: Blob;
-  neck: { z: number; radius: number; pegRadius: number; pegLength: number };
+  /**
+   * `z` is where the head comes off (the neck cut, when enabled; the hollow's floor sits above
+   * it either way). `anatomyZ` is the default cut height, which ears, snout, legs, and tail are
+   * sized against, so moving the cut never reshapes the dog.
+   */
+  neck: {
+    cut: boolean;
+    z: number;
+    anatomyZ: number;
+    radius: number;
+    pegRadius: number;
+    pegLength: number;
+  };
+  /** Front/back split of the head (or the whole dog, without a neck cut) at y = `y`. */
+  split: { cut: boolean; y: number };
   ears: Ear[];
   snout: Blob | null;
   nose: Blob | null;
@@ -111,7 +125,7 @@ export type DogLayout = {
   paws: Blob[];
   haunches: Blob[];
   tail: Segment[];
-  /** Pin boss axes (along y) at these (x, z). */
+  /** Dowel boss axes (along y, at the split plane) at these (x, z). */
   bosses: (readonly [number, number])[];
   /** Cable or USB opening. */
   port:
@@ -201,15 +215,21 @@ export function dogLayout(values: Params): DogLayout {
   const overlap = 0.45 * Math.min(rz, brz);
   const cz = bcz + brz + rz - overlap;
   const neckRadius = 0.42 * Math.min(rx, brx);
+  const anatomyZ = cz - rz - 1;
+  const neckCut = bool(values, "neckCut");
   const neck = {
-    z: cz - rz - 1,
+    cut: neckCut,
+    z: anatomyZ + (neckCut ? num(values, "neckCutOffset") : 0),
+    anatomyZ,
     radius: neckRadius,
     pegRadius: neckRadius - wall - 1,
     pegLength: 7,
   };
+  const splitCut = bool(values, "headSplit");
+  const split = { cut: splitCut, y: splitCut ? num(values, "headSplitOffset") : 0 };
   const k = brx / 17; // the spike's body radius; small features scale with it
 
-  const ears = earLayout(values, { rx, ry, rz, cz, neckZ: neck.z });
+  const ears = earLayout(values, { rx, ry, rz, cz, neckZ: anatomyZ });
 
   // Snout under the screen: above the neck cut and clear of the window.
   let snout: Blob | null = null;
@@ -219,7 +239,7 @@ export function dogLayout(values: Params): DogLayout {
   if (snoutSize > 0) {
     const viewHalf = shape.kind === "round" ? shape.viewDiameter / 2 : shape.viewHeight / 2;
     const top = cz - viewHalf - 1;
-    const bottom = neck.z + 2;
+    const bottom = anatomyZ + 2;
     let radii: Vec3 = [1.7 * snoutSize, 0.9 * snoutSize, 0.85 * snoutSize];
     if (2 * radii[2] > top - bottom) radii = scale(radii, (top - bottom) / (2 * radii[2]));
     if (radii[2] < 1.2) {
@@ -243,7 +263,7 @@ export function dogLayout(values: Params): DogLayout {
   for (const side of [-1, 1]) {
     const lx = side * 0.47 * brx;
     if (bool(values, "frontLegs")) {
-      const legTop = Math.min(bcz + 0.1 * brz, neck.z - 4);
+      const legTop = Math.min(bcz + 0.1 * brz, anatomyZ - 4);
       legs.push({
         a: [lx, bcy - bry, 6 * k],
         b: [lx, bcy - 0.7 * bry, legTop],
@@ -256,14 +276,17 @@ export function dogLayout(values: Params): DogLayout {
       radii: [0.47 * brx, 0.7 * bry, 0.59 * brx],
     });
   }
-  const tail = tailLayout(str(values, "tail"), body, k, neck.z);
+  const tail = tailLayout(str(values, "tail"), body, k, anatomyZ);
 
-  // Pin bosses on the upper sides of the head, just inside the wall.
+  // Dowel bosses on the upper sides of the head's cross-section at the split plane, just inside
+  // the wall.
+  const across = Math.sqrt(Math.max(0, 1 - (split.y / ry) ** 2));
   const bosses = [-1, 1].map((side) => {
     const t = 50 * deg;
-    const px = side * rx * Math.sin(t);
-    const pz = rz * Math.cos(t);
-    const n = normalize([px / rx ** 2, 0, pz / rz ** 2]);
+    const [ex, ez] = [rx * across, rz * across];
+    const px = side * ex * Math.sin(t);
+    const pz = ez * Math.cos(t);
+    const n = normalize([px / ex ** 2, 0, pz / ez ** 2]);
     const inward = wall + 2.2;
     return [px - n[0] * inward, cz + pz - n[2] * inward] as const;
   });
@@ -294,6 +317,7 @@ export function dogLayout(values: Params): DogLayout {
     pad: { round, halfX: padHalfX, halfZ: padHalfZ },
     body,
     neck,
+    split,
     ears,
     snout,
     nose,
@@ -573,7 +597,7 @@ export function placeBattery(L: DogLayout, pouch: readonly [number, number, numb
             box.min[a] + ((box.max[a] - box.min[a]) * s) / steps;
           const p: Vec3 = [at(0, i), at(1, j), at(2, m)];
           if (core(p) > -(L.wall + 0.2) || p[2] < floor + 0.2) return false;
-          if (Math.abs(p[1]) <= BOSS.half + 0.2) {
+          if (L.split.cut && Math.abs(p[1] - L.split.y) <= BOSS.half + 0.2) {
             for (const [bx, bz] of L.bosses) {
               if (Math.hypot(p[0] - bx, p[2] - bz) < BOSS.radius + 0.2) return false;
             }

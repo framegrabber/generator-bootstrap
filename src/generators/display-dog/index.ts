@@ -271,6 +271,48 @@ const displayDog: GeneratorDef = {
       visibleWhen: is("battery", "custom"),
     })),
     {
+      kind: "boolean",
+      key: "neckCut",
+      label: "Cut head from body",
+      group: "Cuts",
+      default: true,
+      help: "The head plugs onto the body with a peg. Off: head and body print as one piece.",
+    },
+    {
+      kind: "number",
+      key: "neckCutOffset",
+      label: "Neck cut height",
+      group: "Cuts",
+      unit: "mm",
+      default: 0,
+      min: -15,
+      max: 15,
+      step: 0.5,
+      visibleWhen: (v) => v.neckCut === true,
+      help: "Up or down from just under the head. Keep it clear of the chin and tail.",
+    },
+    {
+      kind: "boolean",
+      key: "headSplit",
+      label: "Split head front/back",
+      group: "Cuts",
+      default: true,
+      help: "Opens the head for the display. Off: the display cannot be fitted.",
+    },
+    {
+      kind: "number",
+      key: "headSplitOffset",
+      label: "Head split position",
+      group: "Cuts",
+      unit: "mm",
+      default: 0,
+      min: -15,
+      max: 15,
+      step: 0.5,
+      visibleWhen: (v) => v.headSplit === true,
+      help: "Back (+) or forward (−) from the ears' middle, where half-ears print flat.",
+    },
+    {
       kind: "number",
       key: "wall",
       label: "Wall thickness",
@@ -354,8 +396,29 @@ const displayDog: GeneratorDef = {
       }
     }
     if (issues.length > 0) return issues;
+    const L = dogLayout(values);
+    if (L.split.cut && L.split.y < L.pocketBack + 0.5) {
+      issues.push({
+        key: "headSplitOffset",
+        message: "The head split runs through the display pocket; move it back.",
+      });
+    }
+    if (L.neck.cut) {
+      const displayBottom = L.cz - L.footprint.halfZ;
+      if (L.neck.z + L.wall + 2 > displayBottom - L.wall) {
+        issues.push({
+          key: "neckCutOffset",
+          message: "The neck cut runs into the display; move it down.",
+        });
+      } else if (L.neck.z - L.neck.pegLength - 1 < L.body.center[2]) {
+        issues.push({
+          key: "neckCutOffset",
+          message: "The neck cut is too low for the neck peg; move it up.",
+        });
+      }
+    }
     const pouch = selectedBattery(values);
-    if (pouch && !placeBattery(dogLayout(values), pouch)) {
+    if (pouch && !placeBattery(L, pouch)) {
       issues.push({
         key: "battery",
         message:

@@ -1,9 +1,18 @@
 import type { CrossSection, Manifold } from "manifold-3d";
+import type { Vec3 } from "../../core/bounds";
 import { solidFromSdf, type Geom } from "../../core/geom";
-import { scale } from "../../core/sdf";
+import {
+  IDENTITY,
+  invertRigid,
+  multiply,
+  rotationX,
+  translation,
+  type Mat4,
+} from "../../core/mat4";
 import { meshFromManifold, withScope } from "../../core/manifold";
 import { str } from "../../core/params";
-import type { GeneratorBuild, Part } from "../../core/types";
+import { scale } from "../../core/sdf";
+import type { CutPlane, GeneratorBuild, Part } from "../../core/types";
 import {
   BOSS,
   EAR_ACCENT_FLOOR,
@@ -25,6 +34,8 @@ const SEGMENTS = 96;
 const FACE = "face";
 /** Pieces smaller than this (mm³) are meshing crumbs, not features. */
 const MIN_PIECE_VOLUME = 1;
+/** Gap between parts in the print layout. */
+const LAYOUT_GAP = 10;
 
 const build: GeneratorBuild = (values, { wasm }) => {
   const L = dogLayout(values);
@@ -36,6 +47,9 @@ const build: GeneratorBuild = (values, { wasm }) => {
     warnings.push(
       "No room for the snout between the screen and the neck; increase the face margin.",
     );
+  }
+  if (!L.split.cut) {
+    warnings.push("The head is not split, so the display cannot be fitted after printing.");
   }
 
   const parts = withScope((scope): Part[] => {
@@ -89,18 +103,14 @@ const build: GeneratorBuild = (values, { wasm }) => {
             Math.min(1.5, shape.viewWidth / 4, shape.viewHeight / 4),
           );
 
-    // ---- Outer solid, split into head and body at the neck --------------------------------
+    // ---- The whole dog: hollow head, pocket rim, window, pocket, port ---------------------
     const outer = t(
       solidFromSdf(geom, outerSdf(L), outerBounds(L), L.meshEdge).trimByPlane([0, 0, 1], 0),
     );
-    const [headSolid, bodySolid] = outer.splitByPlane([0, 0, 1], L.neck.z).map(t);
-
-    // ---- Head: hollow, pocket rim, pin bosses, neck peg -----------------------------------
-    const floorZ = L.neck.z + L.wall + 2;
     const inner = t(
       solidFromSdf(geom, headCoreSdf(L), headBounds(L), L.meshEdge, L.wall).trimByPlane(
         [0, 0, 1],
-        floorZ,
+        L.neck.z + L.wall + 2,
       ),
     );
     const rimDepth = Math.min(L.module.thickness, POCKET_RIM);
@@ -111,18 +121,11 @@ const build: GeneratorBuild = (values, { wasm }) => {
         L.faceY + L.wall + rimDepth,
       ).intersect(outer),
     );
-    const bosses = t(
-      t(
-        M.union(L.bosses.map(([x, z]) => cylinderY(BOSS.radius, -BOSS.half, BOSS.half, x, z))),
-      ).intersect(outer),
-    );
-    const peg = cylinderZ(L.neck.pegRadius, L.neck.z - L.neck.pegLength, L.neck.z + 1);
-    let head = t(M.union([t(headSolid.subtract(inner)), rimBlock, bosses, peg]));
-
-    const cuts: Manifold[] = [
+    const openings: Manifold[] = [
       prismY(window, L.faceY - 1, L.faceY + L.wall + 0.5),
       prismY(footprint, L.faceY + L.wall, L.faceY + L.wall + rimDepth + 1),
     ];
+    const [, ry] = L.head.radii;
     if (L.port.kind === "usb") {
       const { y, angle, from, to } = L.port;
       const slot = t(
@@ -130,13 +133,17 @@ const build: GeneratorBuild = (values, { wasm }) => {
           t(CS.square([USB_OPENING.width, to - from])).translate([-USB_OPENING.width / 2, from]),
         ).rotate(angle),
       );
-      cuts.push(prismY(slot, y - USB_OPENING.height / 2, y + USB_OPENING.height / 2));
+      openings.push(prismY(slot, y - USB_OPENING.height / 2, y + USB_OPENING.height / 2));
     } else {
-      const [, ry] = L.head.radii;
-      cuts.push(cylinderY(L.port.radius, 0, ry + 10, 0, L.port.z));
+      openings.push(cylinderY(L.port.radius, 0, ry + 10, 0, L.port.z));
     }
+    const whole = t(
+      t(M.union([t(outer.subtract(inner)), rimBlock])).subtract(t(M.union(openings))),
+    );
 
     // ---- Accents: regions of the outer surface in a second colour -------------------------
+    // They belong to the piece with the face, so they stay in front of the head split.
+    const splitY = L.split.cut ? L.split.y : 0;
     type Accent = { name: string; solid: Manifold; flatAt: number };
     const accents: Accent[] = [];
     if (accentMode !== "none") {
@@ -147,6 +154,7 @@ const build: GeneratorBuild = (values, { wasm }) => {
         const tool = t(blob.trimByPlane([0, -1, 0], -flatAt));
         accents.push({ name: "nose", solid: t(outer.intersect(tool)), flatAt });
       }
+      const earBack = Math.min(0, splitY) - EAR_ACCENT_FLOOR;
       for (const ear of L.ears) {
         if (!ear.accent) continue;
         const outline =
@@ -161,84 +169,131 @@ const build: GeneratorBuild = (values, { wasm }) => {
                   t(t(CS.circle(1, 48)).scale(ear.accent.radii)).rotate(ear.accent.angle),
                 ).translate(ear.accent.center),
               );
-        const [, ry] = L.head.radii;
-        const prism = prismY(outline, -ry - 20, -EAR_ACCENT_FLOOR, 0);
+        const prism = prismY(outline, -ry - 20, earBack, 0);
         const name = ear.base[0] < 0 ? "inner-ear-left" : "inner-ear-right";
-        accents.push({ name, solid: t(outer.intersect(prism)), flatAt: -EAR_ACCENT_FLOOR });
+        accents.push({ name, solid: t(outer.intersect(prism)), flatAt: earBack });
       }
-      cuts.push(...accents.map((a) => a.solid));
     }
-    head = t(head.subtract(t(M.union(cuts))));
 
-    // ---- Split the head front/back, with dowel holes across the split ---------------------
-    // Both halves print on the split face, so neither can carry a pin; the dowels are
-    // pieces of filament pushed into holes on both sides.
-    const dowels = L.bosses.map(([x, z]) =>
-      cylinderY((DOWEL.diameter + L.fit) / 2, -DOWEL.depth, DOWEL.depth, x, z),
-    );
-    const [headBack, headFront] = t(head.subtract(t(M.union(dowels))))
-      .splitByPlane([0, 1, 0], 0)
-      .map(t);
+    // ---- Pieces: the whole dog cut along the enabled planes -------------------------------
+    let shell =
+      accents.length > 0 ? t(whole.subtract(t(M.union(accents.map((a) => a.solid))))) : whole;
+    if (L.split.cut) {
+      // Both halves print on the split face, so neither can carry a pin; the dowels are
+      // pieces of filament pushed into holes on both sides, in bosses inside the wall.
+      const bosses = L.bosses.map(([x, z]) =>
+        cylinderY(BOSS.radius, splitY - BOSS.half, splitY + BOSS.half, x, z),
+      );
+      const dowels = L.bosses.map(([x, z]) =>
+        cylinderY((DOWEL.diameter + L.fit) / 2, splitY - DOWEL.depth, splitY + DOWEL.depth, x, z),
+      );
+      shell = t(
+        t(M.union([shell, t(t(M.union(bosses)).intersect(outer))])).subtract(t(M.union(dowels))),
+      );
+    }
+    let upper = shell;
+    let lower: Manifold | null = null;
+    if (L.neck.cut) {
+      const { z, pegRadius, pegLength } = L.neck;
+      const [above, below] = shell.splitByPlane([0, 0, 1], z).map(t);
+      upper = t(M.union([above, cylinderZ(pegRadius, z - pegLength, z + 1)]));
+      lower = t(below.subtract(cylinderZ(pegRadius + L.fit, z - pegLength - 0.5, z + 1)));
+    }
 
-    // ---- Body with the neck socket -------------------------------------------------------
-    const socket = cylinderZ(
-      L.neck.pegRadius + L.fit,
-      L.neck.z - L.neck.pegLength - 0.5,
-      L.neck.z + 1,
-    );
-    const body = t(bodySolid.subtract(socket));
+    /** A piece in its print pose: `pose` maps assembled coordinates to it. */
+    type Piece = { name: string; solid: Manifold; pose: Mat4; color: string; face?: boolean };
+    const pieces: Piece[] = [];
+    // Head halves (or the whole dog's halves) lie on the split face: front face up, back face up.
+    const frontDown = (y: number) => multiply(translation([0, 0, y]), rotationX(-90));
+    const backDown = (y: number) => multiply(translation([0, 0, -y]), rotationX(90));
+    const prefix = L.neck.cut ? "head-" : "";
+    if (L.split.cut) {
+      const [back, front] = upper.splitByPlane([0, 1, 0], splitY).map(t);
+      pieces.push(
+        {
+          name: `${prefix}front`,
+          solid: front,
+          pose: frontDown(splitY),
+          color: bodyColor,
+          face: true,
+        },
+        { name: `${prefix}back`, solid: back, pose: backDown(splitY), color: bodyColor },
+      );
+    } else {
+      // An unsplit head stands on its peg; the uncut dog on its base.
+      const lift = L.neck.cut ? L.neck.pegLength - L.neck.z : 0;
+      const name = L.neck.cut ? "head" : "dog";
+      pieces.push({
+        name,
+        solid: upper,
+        pose: translation([0, 0, lift]),
+        color: bodyColor,
+        face: true,
+      });
+    }
+    if (lower) pieces.push({ name: "body", solid: lower, pose: IDENTITY, color: bodyColor });
+    const facePiece = pieces.find((p) => p.face);
+    for (const accent of accents) {
+      pieces.push({
+        name: accent.name,
+        solid: accent.solid,
+        // Printed in place: same pose as the face piece. Glued on: flat side down.
+        pose: accentMode === "inplace" && facePiece ? facePiece.pose : frontDown(accent.flatAt),
+        color: accentColor,
+      });
+    }
 
     /**
-     * The solid as one printable piece. Boolean cuts through thin, curved regions (ear edges at
-     * coarse detail) can leave crumbs below print resolution; those are dropped. Any second
-     * real piece is an error: it would print as a loose part.
+     * Drops crumbs below print resolution, which boolean cuts through thin, curved regions (ear
+     * edges at coarse detail) can leave. A second real piece means a cut runs through a thin
+     * feature; that is a warning, not an error, so the preview still shows the new cut planes
+     * and the user can move them.
      */
     const onePiece = (solid: Manifold, label: string) => {
-      const real = solid
-        .decompose()
-        .map(t)
-        .filter((piece) => piece.volume() >= MIN_PIECE_VOLUME);
-      if (real.length !== 1) {
-        throw new Error(
-          `The ${label} came out in ${real.length} separate pieces. Try other ear, tail, or snout settings.`,
+      const pieces = solid.decompose().map(t);
+      const real = pieces.filter((piece) => piece.volume() >= MIN_PIECE_VOLUME);
+      if (real.length > 1) {
+        warnings.push(
+          `The ${label} comes out in ${real.length} separate pieces: a cut passes through a thin ` +
+            "feature such as the chin, ears, or tail. Move the neck cut or the head split.",
         );
       }
-      return real[0];
+      return real.length === pieces.length ? solid : t(M.union(real));
     };
 
-    // Print orientation: head halves lie on the split face, the body stands on its base.
-    const faceDown = (m: Manifold, flatAt = 0) =>
-      t(t(m.rotate([-90, 0, 0])).translate([0, 0, flatAt]));
+    // ---- Print layout: side by side along x, in-place accents with their face piece --------
+    const inPlace = accentMode === "inplace" && facePiece !== undefined && accents.length > 0;
     const result: Part[] = [];
-    const frontPrint = faceDown(onePiece(headFront, "head front"));
-    result.push({
-      name: "head-front",
-      mesh: meshFromManifold(frontPrint),
-      color: bodyColor,
-      ...(accentMode === "inplace" && accents.length > 0 ? { assembly: FACE } : {}),
-    });
-    result.push({
-      name: "head-back",
-      mesh: meshFromManifold(t(onePiece(headBack, "head back").rotate([90, 0, 0]))),
-      color: bodyColor,
-    });
-    result.push({ name: "body", mesh: meshFromManifold(onePiece(body, "body")), color: bodyColor });
-    for (const accent of accents) {
-      const solid = onePiece(accent.solid, accent.name.replaceAll("-", " "));
-      result.push(
-        accentMode === "inplace"
-          ? {
-              name: accent.name,
-              mesh: meshFromManifold(faceDown(solid)),
-              color: accentColor,
-              assembly: FACE,
-            }
-          : {
-              name: accent.name,
-              mesh: meshFromManifold(faceDown(solid, accent.flatAt)),
-              color: accentColor,
-            },
-      );
+    let cursor = 0;
+    const place = (solid: Manifold, pose: Mat4): Mat4 => {
+      const box = t(solid.transform(pose)).boundingBox();
+      const shift = translation([cursor - box.min[0], -(box.min[1] + box.max[1]) / 2, 0]);
+      cursor += box.max[0] - box.min[0] + LAYOUT_GAP;
+      return multiply(shift, pose);
+    };
+    let facePose: Mat4 | null = null;
+    for (const piece of pieces) {
+      const solid = onePiece(piece.solid, piece.name.replaceAll("-", " "));
+      const isAccent = accents.some((a) => a.name === piece.name);
+      const grouped = inPlace && (piece.face || isAccent);
+      const pose: Mat4 = grouped && isAccent && facePose ? facePose : place(solid, piece.pose);
+      if (piece.face) facePose = pose;
+      result.push({
+        name: piece.name,
+        mesh: meshFromManifold(t(solid.transform(pose))),
+        color: piece.color,
+        assembled: invertRigid(pose),
+        ...(grouped ? { assembly: FACE } : {}),
+      });
+    }
+    // The uncut dog, for printing in one piece; the assembled view shows the pieces instead.
+    if (L.neck.cut || L.split.cut) {
+      const pose = place(whole, IDENTITY);
+      result.push({
+        name: "whole",
+        mesh: meshFromManifold(t(onePiece(whole, "whole dog").transform(pose))),
+        color: bodyColor,
+      });
     }
     return result;
   });
@@ -246,44 +301,86 @@ const build: GeneratorBuild = (values, { wasm }) => {
   return {
     parts,
     warnings,
+    cutPlanes: cutPlanes(L),
     extraFiles: [{ path: "ASSEMBLY.txt", content: assemblyNotes(L, accentMode) }],
   };
 };
 
+/** The enabled cuts, sized to the dog (the head split only spans the head above the neck). */
+function cutPlanes(L: DogLayout): CutPlane[] {
+  const { min, max } = outerBounds(L);
+  const top: Vec3 = [max[0], max[1], max[2]];
+  const at = (z: number): Vec3 => [min[0], min[1], z];
+  const planes: CutPlane[] = [];
+  if (L.neck.cut) {
+    planes.push({ name: "Neck cut", axis: 2, at: L.neck.z, bounds: { min: at(0), max: top } });
+  }
+  if (L.split.cut) {
+    const bounds = { min: at(L.neck.cut ? L.neck.z : 0), max: top };
+    planes.push({ name: "Head split", axis: 1, at: L.split.y, bounds });
+  }
+  return planes;
+}
+
 function assemblyNotes(L: DogLayout, accentMode: string): string {
+  const front = L.neck.cut ? "head-front" : "front";
+  const back = L.neck.cut ? "head-back" : "back";
   const lines = [
     "Display dog: printing and assembly",
     "",
     "Print orientation (already set in the files):",
-    "- head-front and head-back lie on their flat split face; no supports needed.",
-    "- body stands on its flat base.",
   ];
+  if (L.split.cut) {
+    lines.push(`- ${front} and ${back} lie on their flat split face.`);
+  } else {
+    lines.push(
+      L.neck.cut
+        ? "- head stands on its neck peg and needs supports."
+        : "- dog stands on its base and needs supports under the head.",
+    );
+  }
+  if (L.neck.cut) lines.push("- body stands on its flat base.");
+  if (L.neck.cut || L.split.cut) {
+    lines.push("- whole is the dog in one piece, for printing without assembly (no display).");
+  }
   if (accentMode === "inplace") {
     lines.push(
-      "- The nose and inner ears print in place on head-front: assign them a second filament.",
+      "- The nose and inner ears print in place on the face piece: assign them a second filament.",
     );
   } else if (accentMode === "glue") {
     lines.push(
       "- The nose and inner ears are separate; print them flat side down in a second colour.",
     );
   }
-  lines.push(
-    "",
-    "Assembly:",
-    "1. Press the display into the pocket behind the face window, screen first.",
-    L.module.usb
-      ? `2. Turn the board so its USB-C port faces the ${L.edge} opening.`
-      : "2. Route the display wires through the head; the hole low in head-back is for a cable.",
-    "3. Lay the battery flat behind the display, if you use one.",
-    `4. Push a ${2 * DOWEL.depth - 0.5} mm piece of ${DOWEL.diameter} mm filament into each hole on the split face of head-back, then press head-front on.`,
-    "5. Push the neck peg into the body's socket. The socket clamps both head halves together.",
-  );
-  if (accentMode === "glue") lines.push("6. Glue the nose and inner ears onto their flat spots.");
-  lines.push(
-    "",
-    `Neck fit clearance: ${L.fit} mm. If the head is loose or too tight, change "Fit clearance" and reprint the body only.`,
-    "",
-  );
+  const steps: string[] = [];
+  if (!L.split.cut) {
+    steps.push("The head is not split, so the display cannot be fitted after printing.");
+  } else {
+    steps.push(
+      "Press the display into the pocket behind the face window, screen first.",
+      L.module.usb
+        ? `Turn the board so its USB-C port faces the ${L.edge} opening.`
+        : `Route the display wires through the head; the hole low in ${back} is for a cable.`,
+      "Lay the battery flat behind the display, if you use one.",
+      `Push a ${2 * DOWEL.depth - 0.5} mm piece of ${DOWEL.diameter} mm filament into each hole on the split face of ${back}, then press ${front} on.`,
+    );
+  }
+  if (L.neck.cut) {
+    steps.push(
+      L.split.cut
+        ? "Push the neck peg into the body's socket. The socket clamps both head halves together."
+        : "Push the neck peg into the body's socket.",
+    );
+  }
+  if (accentMode === "glue") steps.push("Glue the nose and inner ears onto their flat spots.");
+  lines.push("", "Assembly:", ...steps.map((s, i) => `${i + 1}. ${s}`));
+  if (L.neck.cut) {
+    lines.push(
+      "",
+      `Neck fit clearance: ${L.fit} mm. If the head is loose or too tight, change "Fit clearance" and reprint the body only.`,
+    );
+  }
+  lines.push("");
   return lines.join("\n");
 }
 

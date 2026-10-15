@@ -8,6 +8,8 @@ import {
   dogLayout,
   outerBounds,
 } from "../../../src/generators/display-dog/layout";
+import { boundsOf } from "../../../src/core/bounds";
+import { transformBounds } from "../../../src/core/mat4";
 import { buildWith, paramsFor, signedVolume } from "./helpers";
 
 const ID = "display-dog";
@@ -46,6 +48,21 @@ describe("display-dog validate", () => {
     expect(issueKeys({ ...big, headDepth: 60 })).toEqual([]);
     expect(issueKeys({ ...big, headDepth: 50, battery: "none" })).toEqual([]);
   });
+
+  it("keeps the head split behind the display pocket", () => {
+    const limit = dogLayout(paramsFor(ID)).pocketBack + 0.5;
+    expect(issueKeys({ headSplitOffset: limit })).toEqual([]);
+    expect(issueKeys({ headSplitOffset: limit - 0.1 })).toContain("headSplitOffset");
+    expect(issueKeys({ headSplitOffset: limit - 0.1, headSplit: false })).toEqual([]);
+  });
+
+  it("keeps the neck cut below the display", () => {
+    const L = dogLayout(paramsFor(ID));
+    // The head's hollow floor sits wall + 2 above the cut and must stay a wall below the display.
+    const limit = L.cz - L.footprint.halfZ - L.wall - (L.wall + 2) - L.neck.anatomyZ;
+    expect(issueKeys({ neckCutOffset: Math.floor(limit) })).toEqual([]);
+    expect(issueKeys({ neckCutOffset: limit + 0.1 })).toContain("neckCutOffset");
+  });
 });
 
 describe("display-dog layout", () => {
@@ -60,16 +77,16 @@ describe("display-dog layout", () => {
     ];
     let seed = 7;
     const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    let lowest = Infinity;
     for (const overrides of shapes) {
       const L = dogLayout(paramsFor(ID, overrides));
       const { min, max } = outerBounds(L);
       for (let i = 0; i < 20_000; i++) {
         const p = [0, 1, 2].map((a) => min[a] - 10 + (max[a] - min[a] + 20) * random());
-        for (const ratio of cullRatios(L, [p[0], p[1], p[2]])) {
-          expect(ratio).toBeGreaterThanOrEqual(CULL_FACTOR);
-        }
+        for (const ratio of cullRatios(L, [p[0], p[1], p[2]])) lowest = Math.min(lowest, ratio);
       }
     }
+    expect(lowest).toBeGreaterThanOrEqual(CULL_FACTOR);
   });
 });
 
@@ -104,7 +121,7 @@ describe("display-dog build", { timeout: 60_000 }, () => {
     const accented = await buildWith(ID, draft({ accentMode: "inplace" }));
     const total = (parts: typeof plain.parts) =>
       parts
-        .filter((p) => p.name !== "head-back" && p.name !== "body")
+        .filter((p) => !["head-back", "body", "whole"].includes(p.name))
         .reduce((s, p) => s + signedVolume(p.mesh), 0);
     expect(accented.parts.map((p) => [p.name, p.assembly])).toEqual([
       ["head-front", "face"],
@@ -113,9 +130,51 @@ describe("display-dog build", { timeout: 60_000 }, () => {
       ["nose", "face"],
       ["inner-ear-left", "face"],
       ["inner-ear-right", "face"],
+      ["whole", undefined],
     ]);
     // Head front plus accents equals the uncut head front: no gap, no overlap.
     expect(Math.abs(total(accented.parts) - total(plain.parts))).toBeLessThan(0.5);
+  });
+
+  it.each([
+    [{ neckCut: true, headSplit: true }, ["head-front", "head-back", "body", "whole"]],
+    [{ neckCut: true, headSplit: false }, ["head", "body", "whole"]],
+    [{ neckCut: false, headSplit: true }, ["front", "back", "whole"]],
+    [{ neckCut: false, headSplit: false }, ["dog"]],
+  ])("cuts %o into %o", async (cuts, names) => {
+    const result = await buildWith(ID, draft({ ...cuts, accentMode: "none" }));
+    expect(result.parts.map((p) => p.name)).toEqual(names);
+    expect(result.cutPlanes?.map((p) => p.name)).toEqual(
+      [cuts.neckCut && "Neck cut", cuts.headSplit && "Head split"].filter(Boolean),
+    );
+  });
+
+  it("places the pieces back together into the whole dog's shape", async () => {
+    const result = await buildWith(ID, draft({ neckCut: false, accentMode: "none" }));
+    const pieces = result.parts.filter((p) => p.assembled);
+    const whole = result.parts.find((p) => p.name === "whole");
+    expect(pieces.map((p) => p.name)).toEqual(["front", "back"]);
+    const size = (b: { min: number[]; max: number[] }) => b.max.map((v, i) => v - b.min[i]);
+    const placed = pieces.map((p) => transformBounds(p.assembled!, boundsOf([p.mesh])!));
+    const union = {
+      min: [0, 1, 2].map((k) => Math.min(...placed.map((b) => b.min[k]))),
+      max: [0, 1, 2].map((k) => Math.max(...placed.map((b) => b.max[k]))),
+    };
+    // Same size as the uncut dog, standing on the bed with its face toward -y.
+    size(union).forEach((v, i) => expect(v).toBeCloseTo(size(boundsOf([whole!.mesh])!)[i], 1));
+    expect(union.min[2]).toBeCloseTo(0, 3);
+    const front = transformBounds(pieces[0].assembled!, boundsOf([pieces[0].mesh])!);
+    expect(front.max[1]).toBeCloseTo(0, 3);
+  });
+
+  it("moves the neck cut by its offset: the body grows by the same height", async () => {
+    // No tail: a cut this low would catch the curled tail's tip, which correctly fails.
+    const height = async (offset: number) => {
+      const result = await buildWith(ID, draft({ neckCutOffset: offset, tail: "none" }));
+      const body = result.parts.find((p) => p.name === "body")!;
+      return boundsOf([body.mesh])!.max[2];
+    };
+    expect((await height(-1)) - (await height(-4))).toBeCloseTo(3, 3);
   });
 
   it("sizes the neck socket to the peg plus the fit clearance", async () => {
