@@ -21,9 +21,11 @@ One generator, `display-dog`, built from signed-distance functions meshed with `
 | Value | Visible area | Outline | Source |
 |---|---|---|---|
 | `gc9a01-module` | Ø32.4 | 38 × 45.5 × 4.5 mm (round panel on a board with a pin tab) | [datasheet](https://cdn.shopify.com/s/files/1/1509/1638/files/1_28inchTFT_datasheet.pdf?v=1691389826) |
-| `waveshare-s3-lcd-128` | Ø32.4 | board R18.25, USB-C tab 18.37 wide × 5.48 proud; thickness unknown | [wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.28) |
-| `waveshare-s3-touch-lcd-128` | Ø33.4 | glass Ø38.51, 40.36 tall with FPC tab, board R18.75, USB-C 9.92 wide; thickness unknown | [wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.28) |
+| `waveshare-s3-lcd-128` | Ø32.4 | board R18.25, USB-C tab 18.37 wide × 5.48 proud; **11 mm thick (estimate)**: panel + PCB + the 1.27 mm female headers on the back | [wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.28) |
+| `waveshare-s3-touch-lcd-128` | Ø33.4 | glass Ø38.51, 40.36 tall with FPC tab, board R18.75, USB-C 9.92 wide; **8 mm thick (estimate)**: touch glass + panel + PCB + USB-C, no headers | [wiki](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.28) |
 | `custom` | round or rect, user dimensions | user outline + thickness: the volume the rest is built around | — |
+
+Thicknesses marked estimate are catalogue constants, replaced when someone measures a board. The pocket adds 0.3 mm clearance per side on top of every outline.
 
 ### Parameters
 
@@ -46,10 +48,24 @@ One generator, `display-dog`, built from signed-distance functions meshed with `
 | | `tail` | select | none / stub / curl up / wag to one side |
 | Print | `wall` | number | |
 | | `neckFit` | number | friction-ring clearance |
-| | `battery` | select (+ numbers for custom) | none / common LiPo sizes / custom; sizes the body cavity |
+| | `battery` | select (+ numbers for custom) | none / `402030` / `502030` / `503035` / custom; sizes the body cavity (see below) |
 | | `accentMode` | select | in place (AMS) / glue-on |
 | | `bodyColor`, `accentColor` | color | |
 | | `detail` | select | draft / fine mesh edge length |
+
+### Battery sizes
+
+LiPo pouch names encode thickness (0.1 mm), width and length in mm. Capacities are typical, not guaranteed.
+
+| Value | Pouch (T × W × L) | Typical capacity | Cavity reserved |
+|---|---|---|---|
+| `none` | — | — | no battery cavity; USB-powered |
+| `402030` | 4 × 20 × 30 mm | ~200 mAh | 5.5 × 22 × 34 mm |
+| `502030` | 5 × 20 × 30 mm | ~250 mAh | 6.5 × 22 × 34 mm |
+| `503035` | 5 × 30 × 35 mm | ~500 mAh | 6.5 × 32 × 39 mm |
+| `custom` | user T × W × L | — | T + 1.5, W + 2, L + 4 |
+
+Cavity = pouch + 1.5 mm on thickness (swelling), + 2 mm on width, + 4 mm on length (protection PCB and leads usually sit at one end). Default `502030`. `503035` may only fit at larger `bodySize`; `validate` reports it.
 
 ### Validation and checks
 - Display module plus wall fits the flat face pad (by construction, plus a `validate` guard for custom sizes).
@@ -62,7 +78,7 @@ One generator, `display-dog`, built from signed-distance functions meshed with `
 - [ ] Builds stay interactive: spikes took ~3 s at 0.8 mm edge length in Node. Test: time a default build in the worker in Chromium; `detail: draft` targets ≤ 1 s.
 - [ ] Splitting through the ear mid-plane prints both half-ears flat without supports for every `earTilt` in range. Test: Bambu Studio CLI slice of front and back halves at min/max tilt; check support volume.
 - [ ] The neck friction ring holds both head halves and the body together without glue at a printable clearance. Test: physical print of a tolerance coupon at 3 clearances.
-- [ ] Waveshare board thickness and USB-C depth. Test: caliper or STEP file; until then those catalogue entries are blocked.
+- [ ] Waveshare board thicknesses (11 and 8 mm are guesses) and USB-C depth. Test: caliper or STEP file; update the catalogue constants.
 - [ ] In-place inner-ear inlays slice as one multi-material object with the accent on filament 2. Test: Bambu Studio CLI, read `model_settings.config`.
 - [ ] Inset level set gives a wall within ±0.3 mm of `wall` in blended regions (smin is not an exact distance). Test: unit test sampling wall thickness on the built shell.
 - [ ] Preview looks smooth enough: the preview currently flat-shades every triangle. Test: screenshot at default detail; if faceted, add angle-based smooth normals in `Preview.tsx`.
@@ -85,5 +101,4 @@ In:
 - Chest lettering: possible with `textOutline`, but on a curved surface it needs projection; later.
 
 ## Open Questions
-- Common LiPo sizes for the `battery` select (e.g. 502030, 602030, 803040): pick from what fits a ~45 mm body.
-- Waveshare board thickness (blocks two catalogue entries).
+- None blocking. Thickness and battery figures are estimates; replace them after the first build with real hardware.
