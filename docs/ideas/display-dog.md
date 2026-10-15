@@ -10,6 +10,8 @@ Status: implemented (commits 4309da7, a2730bf). Deviations from the plan below:
 - Meshing cost needed work: culling shapes by bounding box, `Math.sqrt` instead of `Math.hypot`, and a 1 mm default edge brought the default build from 6.3 s to about 1.7 s in Node and about 3 s in the browser.
 - Bambu Studio 2.7.1 CLI: in-place accents load as object "face" with head-front on filament 1 and nose and inner ears on filament 2; glue-on accents load as separate objects on filament 2. Not yet sliced or printed.
 
+Follow-up (commits b33fcb0, 4ce2e69), at the user's request: the preview shows the dog assembled (Assembled / Print layout toggle) with the cut planes drawn in it (Cut planes toggle). The neck cut and the head split can each be switched off and moved, so the user can keep them off the chin and tail. Every ZIP also holds `whole`, the uncut dog. A cut through a thin feature warns instead of failing, so the preview keeps following the planes. Pieces are named for the cuts in use: `head-front`/`head-back`/`body`, `head`/`body`, `front`/`back`, or `dog`.
+
 ## Problem Statement
 How might we let people who own a small round display (or an ESP32 board with one built in) generate a cute, printable dog enclosure that is sized to their hardware, shaped by a handful of character params, and assembles without glue or support material?
 
