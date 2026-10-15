@@ -24,40 +24,44 @@ export const cross = (a: Vec3, b: Vec3): Vec3 => [
 ];
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+// Primitives run millions of times per mesh: plain arithmetic, no temporary arrays, and
+// Math.sqrt instead of Math.hypot (several times slower in V8).
+const len3 = (x: number, y: number, z: number) => Math.sqrt(x * x + y * y + z * z);
 
 export function sphere(p: Vec3, center: Vec3, radius: number): number {
-  return length(sub(p, center)) - radius;
+  return len3(p[0] - center[0], p[1] - center[1], p[2] - center[2]) - radius;
 }
 
 /** Axis-aligned ellipsoid with semi-axes `radii`. Approximate (exact on the axes). */
 export function ellipsoid(p: Vec3, center: Vec3, radii: Vec3): number {
-  const q = sub(p, center);
-  const k0 = Math.hypot(q[0] / radii[0], q[1] / radii[1], q[2] / radii[2]);
-  const k1 = Math.hypot(q[0] / radii[0] ** 2, q[1] / radii[1] ** 2, q[2] / radii[2] ** 2);
-  return k1 === 0 ? -Math.min(...radii) : (k0 * (k0 - 1)) / k1;
+  const [x, y, z] = [p[0] - center[0], p[1] - center[1], p[2] - center[2]];
+  const [a, b, c] = radii;
+  const k0 = len3(x / a, y / b, z / c);
+  const k1 = len3(x / (a * a), y / (b * b), z / (c * c));
+  return k1 === 0 ? -Math.min(a, b, c) : (k0 * (k0 - 1)) / k1;
 }
 
 /** Segment a–b swept by a sphere of `radius`. */
 export function capsule(p: Vec3, a: Vec3, b: Vec3, radius: number): number {
-  const pa = sub(p, a);
-  const ba = sub(b, a);
-  const h = clamp(dot(pa, ba) / dot(ba, ba), 0, 1);
-  return length(sub(pa, scale(ba, h))) - radius;
+  const [px, py, pz] = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+  const [bx, by, bz] = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const h = clamp((px * bx + py * by + pz * bz) / (bx * bx + by * by + bz * bz), 0, 1);
+  return len3(px - bx * h, py - by * h, pz - bz * h) - radius;
 }
 
 /** Cone from a sphere of radius `ra` at `a` to a sphere of radius `rb` at `b`, tangent-blended. */
 export function roundCone(p: Vec3, a: Vec3, b: Vec3, ra: number, rb: number): number {
   // Inigo Quilez's exact round-cone distance.
-  const ba = sub(b, a);
-  const l2 = dot(ba, ba);
+  const [bx, by, bz] = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const [px, py, pz] = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+  const l2 = bx * bx + by * by + bz * bz;
   const rr = ra - rb;
   const a2 = l2 - rr * rr;
   const il2 = 1 / l2;
-  const pa = sub(p, a);
-  const y = dot(pa, ba);
+  const y = px * bx + py * by + pz * bz;
   const z = y - l2;
-  const x = sub(scale(pa, l2), scale(ba, y));
-  const x2 = dot(x, x);
+  const [xx, xy, xz] = [px * l2 - bx * y, py * l2 - by * y, pz * l2 - bz * y];
+  const x2 = xx * xx + xy * xy + xz * xz;
   const y2 = y * y * l2;
   const z2 = z * z * l2;
   const k = Math.sign(rr) * rr * rr * x2;
@@ -68,9 +72,11 @@ export function roundCone(p: Vec3, a: Vec3, b: Vec3, ra: number, rb: number): nu
 
 /** Axis-aligned box with half-extents `half`, every edge rounded by `radius`. */
 export function roundBox(p: Vec3, center: Vec3, half: Vec3, radius: number): number {
-  const q = [0, 1, 2].map((i) => Math.abs(p[i] - center[i]) - half[i] + radius);
-  const outside = Math.hypot(...q.map((v) => Math.max(v, 0)));
-  return outside + Math.min(Math.max(q[0], q[1], q[2]), 0) - radius;
+  const qx = Math.abs(p[0] - center[0]) - half[0] + radius;
+  const qy = Math.abs(p[1] - center[1]) - half[1] + radius;
+  const qz = Math.abs(p[2] - center[2]) - half[2] + radius;
+  const outside = len3(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0));
+  return outside + Math.min(Math.max(qx, qy, qz), 0) - radius;
 }
 
 /**
@@ -85,11 +91,13 @@ export function roundCylinder(
   halfLength: number,
   edge: number,
 ): number {
-  const q = sub(p, center);
-  const [u, v] = [0, 1, 2].filter((i) => i !== axis);
-  const dr = Math.hypot(q[u], q[v]) - radius + edge;
-  const da = Math.abs(q[axis]) - halfLength + edge;
-  return Math.min(Math.max(dr, da), 0) + Math.hypot(Math.max(dr, 0), Math.max(da, 0)) - edge;
+  const [u, v] = axis === 0 ? [1, 2] : axis === 1 ? [0, 2] : [0, 1];
+  const qu = p[u] - center[u];
+  const qv = p[v] - center[v];
+  const dr = Math.sqrt(qu * qu + qv * qv) - radius + edge;
+  const da = Math.abs(p[axis] - center[axis]) - halfLength + edge;
+  const [or, oa] = [Math.max(dr, 0), Math.max(da, 0)];
+  return Math.min(Math.max(dr, da), 0) + Math.sqrt(or * or + oa * oa) - edge;
 }
 
 /**
@@ -113,4 +121,12 @@ export function unionBox(boxes: readonly Box3[], margin = 0): Box3 {
 export function boxAround(center: Vec3, half: number | Vec3): Box3 {
   const h: Vec3 = typeof half === "number" ? [half, half, half] : half;
   return { min: sub(center, h), max: add(center, h) };
+}
+
+/** Distance from `p` to `box`; 0 inside. A lower bound on the distance to anything inside it. */
+export function boxDistance(p: Vec3, box: Box3): number {
+  const dx = Math.max(box.min[0] - p[0], 0, p[0] - box.max[0]);
+  const dy = Math.max(box.min[1] - p[1], 0, p[1] - box.max[1]);
+  const dz = Math.max(box.min[2] - p[2], 0, p[2] - box.max[2]);
+  return Math.hypot(dx, dy, dz);
 }
