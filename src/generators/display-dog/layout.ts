@@ -2,7 +2,6 @@ import { bool, num, str } from "../../core/params";
 import {
   add,
   boxAround,
-  boxDistance,
   capsule,
   cross,
   dot,
@@ -10,7 +9,6 @@ import {
   normalize,
   roundCone,
   scale,
-  smoothUnion,
   sub,
   unionBox,
   type Box3,
@@ -19,11 +17,16 @@ import {
 } from "../../core/sdf";
 import type { Params } from "../../core/types";
 import {
+  CULL_FACTOR,
+  blendTerms,
   characterLayout,
   headBounds,
   headCoreSdf,
   headSize,
+  termBounds,
+  termRatios,
   type CharacterLayout,
+  type Term,
 } from "../../characters/kit";
 
 /**
@@ -297,7 +300,7 @@ function earSdf(ear: Ear): Sdf {
   };
 }
 
-export { headBounds, headCoreSdf };
+export { CULL_FACTOR };
 
 const blobBox = (b: Blob) => boxAround(b.center, b.radii);
 const segmentBox = (s: Segment) => unionBox([boxAround(s.a, s.radius), boxAround(s.b, s.radius)]);
@@ -313,7 +316,7 @@ const earBox = (e: Ear) => {
  * Every shape blended onto the head core: its distance, blend radius, and a box containing it.
  * The box lets outerSdf skip shapes that cannot change the result at a point.
  */
-function outerTerms(L: DogLayout): { dist: Sdf; k: number; box: Box3 }[] {
+function outerTerms(L: DogLayout): Term[] {
   const k = L.softness;
   const neck: Segment = { a: [0, 0, L.body.center[2]], b: [0, 0, L.cz], radius: L.neck.radius };
   const blob = (b: Blob, blend: number) => ({
@@ -339,39 +342,17 @@ function outerTerms(L: DogLayout): { dist: Sdf; k: number; box: Box3 }[] {
   ];
 }
 
-/**
- * A fraction every term's value stays above, relative to its box distance; culling with it
- * never changes the field. Exact distances give 1. Ears give at least 1/√f with squash factor
- * f ≤ 2.23 (ear half-thickness is ≥ 0.225 × width), so ≥ 0.67. The ellipsoid approximation is
- * not a strict bound; sampling measured ≥ 0.8, and tests check a sweep of shapes.
- */
-export const CULL_FACTOR = 0.4;
-
-/** The whole dog's outer surface. */
+/** The whole dog's outer surface: its head core with every term blended on. */
 export function outerSdf(L: DogLayout): Sdf {
-  const core = headCoreSdf(L);
-  const terms = outerTerms(L);
-  return (p) => {
-    let d = core(p);
-    for (const term of terms) {
-      // smoothUnion(d, b, k) is exactly d when b >= d + k; skip the shape when even its box
-      // is that far away. This is most of the grid, and makes meshing several times faster.
-      if (CULL_FACTOR * boxDistance(p, term.box) >= d + term.k) continue;
-      d = smoothUnion(d, term.dist(p), term.k);
-    }
-    return d;
-  };
+  return blendTerms(headCoreSdf(L), outerTerms(L));
 }
 
 /** Each term's distance divided by its box distance, at `p`; for checking CULL_FACTOR. */
 export function cullRatios(L: DogLayout, p: Vec3): number[] {
-  return outerTerms(L).flatMap((term) => {
-    const box = boxDistance(p, term.box);
-    return box > 0 ? [term.dist(p) / box] : [];
-  });
+  return termRatios(outerTerms(L), p);
 }
 
 /** Box around everything, for meshing the outside. Blends add at most k/4 outside the shapes. */
 export function outerBounds(L: DogLayout): Box3 {
-  return unionBox([headBounds(L), ...outerTerms(L).map((t) => t.box)], L.softness / 2 + 2);
+  return termBounds(headBounds(L), outerTerms(L), L.softness);
 }

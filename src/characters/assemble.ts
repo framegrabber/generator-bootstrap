@@ -223,7 +223,11 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
     );
 
     // ---- Accents --------------------------------------------------------------------------
-    const accents = accentMode === "none" ? [] : spec.accents(outer, k);
+    // Clipped to the finished shell, so an accent never fills the window or a port opening.
+    const accents =
+      accentMode === "none"
+        ? []
+        : spec.accents(outer, k).map((a) => ({ ...a, solid: t(a.solid.intersect(whole)) }));
 
     // ---- Cutting: the same planes for the body and its accents ----------------------------
     const splitY = L.split.cut ? L.split.y : 0;
@@ -298,13 +302,15 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
 
     /**
      * Drops crumbs below print resolution, which boolean cuts through thin, curved regions can
-     * leave. A second real piece means a cut runs through a thin feature; that is a warning,
-     * not an error, so the preview still shows the new cut planes and the user can move them.
+     * leave. A second real piece of a body piece means a cut runs through a thin feature; that
+     * is a warning, not an error, so the preview still shows the new cut planes and the user can
+     * move them. Accents may be several patches (two ear pods), each fused to its piece, so
+     * they pass `patches`.
      */
-    const onePiece = (solid: Manifold, label: string) => {
+    const onePiece = (solid: Manifold, label: string, patches = false) => {
       const found = solid.decompose().map(t);
       const real = found.filter((piece) => piece.volume() >= MIN_PIECE_VOLUME);
-      if (real.length > 1) {
+      if (real.length > 1 && !patches) {
         warnings.push(
           `The ${label} comes out in ${real.length} separate pieces: a cut passes through a thin ` +
             "feature such as the chin, ears, or tail. Move the neck cut or the head split.",
@@ -365,7 +371,7 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
       });
     }
     for (const fragment of fragments) {
-      const solid = onePiece(fragment.solid, fragment.name.replaceAll("-", " "));
+      const solid = onePiece(fragment.solid, fragment.name.replaceAll("-", " "), true);
       if (!solid) continue;
       const slotPose = fragment.slot ? poseOf.get(fragment.slot) : undefined;
       const placed = slotPose ?? place(solid, fragment.pose);

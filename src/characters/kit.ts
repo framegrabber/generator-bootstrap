@@ -1,6 +1,7 @@
 import { bool, num, str } from "../core/params";
 import {
   boxAround,
+  boxDistance,
   ellipsoid,
   normalize,
   roundBox,
@@ -235,6 +236,47 @@ export function headBounds(L: CharacterLayout): Box3 {
     max: [L.pad.halfX, 0, L.cz + L.pad.halfZ],
   } as const;
   return unionBox([head, pad], L.softness / 2 + 2);
+}
+
+/** A shape blended onto a character's core: its distance, blend radius, and a box around it. */
+export type Term = { dist: Sdf; k: number; box: Box3 };
+
+/**
+ * A fraction every term's value stays above, relative to its box distance; culling with it
+ * never changes the field. Exact distances (spheres, capsules, round boxes and cylinders) give
+ * 1. Squashed shapes give at least 1/√f; the dog's ears have f ≤ 2.23, so ≥ 0.67. The
+ * ellipsoid approximation is not a strict bound; sampling measured ≥ 0.8, and each
+ * character's tests check a sweep of its shapes.
+ */
+export const CULL_FACTOR = 0.4;
+
+/**
+ * `core` with every term smooth-blended on. smoothUnion(d, b, k) is exactly d when b ≥ d + k,
+ * so a term is skipped wherever even its box is that far away: most of the meshing grid, which
+ * makes meshing several times faster.
+ */
+export function blendTerms(core: Sdf, terms: readonly Term[]): Sdf {
+  return (p) => {
+    let d = core(p);
+    for (const term of terms) {
+      if (CULL_FACTOR * boxDistance(p, term.box) >= d + term.k) continue;
+      d = smoothUnion(d, term.dist(p), term.k);
+    }
+    return d;
+  };
+}
+
+/** Each term's distance divided by its box distance, at `p`; for checking CULL_FACTOR. */
+export function termRatios(terms: readonly Term[], p: Vec3): number[] {
+  return terms.flatMap((term) => {
+    const box = boxDistance(p, term.box);
+    return box > 0 ? [term.dist(p) / box] : [];
+  });
+}
+
+/** Box around the head and every term, for meshing; blends add at most k/4 outside. */
+export function termBounds(head: Box3, terms: readonly Term[], softness: number): Box3 {
+  return unionBox([head, ...terms.map((t) => t.box)], softness / 2 + 2);
 }
 
 /**
