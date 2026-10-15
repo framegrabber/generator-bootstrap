@@ -46,6 +46,12 @@ export function checkResult(result: GeneratorResult, bed: PrintBed): CheckReport
     if (part.mesh.indices.length === 0 || part.mesh.positions.length === 0) {
       errors.push(`${label}: mesh is empty`);
     }
+    if (
+      part.assembled !== undefined &&
+      !(part.assembled.length === 16 && part.assembled.every(Number.isFinite))
+    ) {
+      errors.push(`${label}: assembled must be 16 finite numbers`);
+    }
   }
   if (errors.length > 0) return { errors, warnings };
 

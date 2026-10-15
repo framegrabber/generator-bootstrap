@@ -2,10 +2,11 @@ import type { ComponentRef } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { CameraControls, GizmoHelper, GizmoViewcube, Grid, Line } from "@react-three/drei";
-import { Box3, Sphere, Vector3 } from "three";
+import { BufferAttribute, BufferGeometry, Box3, DoubleSide, Matrix4, Sphere, Vector3 } from "three";
 import { PRINT_BED } from "../app-config";
 import { boundsOf, type Bounds, type Vec3 } from "../core/bounds";
-import type { Mesh } from "../core/types";
+import { transformBounds, type Mat4 } from "../core/mat4";
+import type { CutPlane, Mesh, Part } from "../core/types";
 import { useBuild } from "../state/build-store";
 import { useView } from "../state/view-store";
 import { displayBounds, toDisplay, VIEW_PRESETS, type ViewPreset } from "./fit";
@@ -38,7 +39,21 @@ export function Preview() {
   const [controls, setControls] = useState<Controls | null>(null);
 
   const parts = result?.parts ?? null;
-  const bounds = useMemo(() => (parts ? boundsOf(parts.map((p) => p.mesh)) : null), [parts]);
+  const cutPlanes = result?.cutPlanes ?? [];
+  const hasAssembled = parts?.some((p) => p.assembled) ?? false;
+  const chosenLayout = useView((s) => s.layout);
+  const layout = hasAssembled ? chosenLayout : "print";
+  const showCuts = useView((s) => s.showCuts) && layout === "assembled";
+  // In the assembled view only parts with a placement show, moved into place.
+  const shown = useMemo(
+    () =>
+      (parts ?? []).flatMap((part, index): Shown[] => {
+        if (layout === "print") return [{ part, index, matrix: null }];
+        return part.assembled ? [{ part, index, matrix: part.assembled }] : [];
+      }),
+    [parts, layout],
+  );
+  const bounds = useMemo(() => shownBounds(shown), [shown]);
 
   // Frames the first geometry and the first result after a generator switch or settings load,
   // never ordinary rebuilds: re-framing while the user tweaks values would fight their camera.
@@ -63,13 +78,15 @@ export function Preview() {
         <directionalLight position={[50, 80, 60]} intensity={1.2} />
         {/* Geometry is Z-up; display Y-up so the gizmo's axes match. See fit.ts. */}
         <group rotation={[-Math.PI / 2, 0, 0]}>
-          {parts?.map((part, index) => (
+          {shown.map(({ part, index, matrix }) => (
             <PartMesh
               key={part.name}
               mesh={part.mesh}
+              matrix={matrix}
               color={part.color ?? PART_PALETTE[index % PART_PALETTE.length]}
             />
           ))}
+          {showCuts && cutPlanes.map((plane) => <CutPlaneMesh key={plane.name} plane={plane} />)}
         </group>
         {bounds && <Bed bounds={bounds} />}
         <CameraControls ref={setControls} makeDefault />
@@ -78,6 +95,33 @@ export function Preview() {
         </GizmoHelper>
       </Canvas>
       <div className="view-toolbar">
+        {hasAssembled && (
+          <>
+            <button
+              type="button"
+              aria-pressed={layout === "assembled"}
+              onClick={() => useView.getState().setLayout("assembled")}
+            >
+              Assembled
+            </button>
+            <button
+              type="button"
+              aria-pressed={layout === "print"}
+              onClick={() => useView.getState().setLayout("print")}
+            >
+              Print layout
+            </button>
+          </>
+        )}
+        {layout === "assembled" && cutPlanes.length > 0 && (
+          <button
+            type="button"
+            aria-pressed={showCuts}
+            onClick={() => useView.getState().toggleCuts()}
+          >
+            Cut planes
+          </button>
+        )}
         <button type="button" disabled={!bounds} onClick={() => act(null)}>
           Fit
         </button>
@@ -129,13 +173,73 @@ function Bed({ bounds }: { bounds: Bounds }) {
   );
 }
 
-function PartMesh({ mesh, color }: { mesh: Mesh; color: string }) {
+type Shown = { part: Part; index: number; matrix: Mat4 | null };
+
+/** Bounds of the shown parts, each moved by its matrix. */
+function shownBounds(shown: readonly Shown[]): Bounds | null {
+  const boxes = shown.flatMap(({ part, matrix }) => {
+    const own = boundsOf([part.mesh]);
+    if (!own) return [];
+    return [matrix ? transformBounds(matrix, own) : own];
+  });
+  if (boxes.length === 0) return null;
+  const pick = (f: (...v: number[]) => number, corner: "min" | "max") =>
+    [0, 1, 2].map((k) => f(...boxes.map((b) => b[corner][k]))) as Vec3;
+  return { min: pick(Math.min, "min"), max: pick(Math.max, "max") };
+}
+
+function PartMesh({ mesh, color, matrix }: { mesh: Mesh; color: string; matrix: Mat4 | null }) {
   const geometry = useMemo(() => meshToGeometry(mesh), [mesh]);
   useEffect(() => () => geometry.dispose(), [geometry]);
-  return (
+  const placement = useMemo(() => (matrix ? new Matrix4().fromArray(matrix) : null), [matrix]);
+  const body = (
     <mesh geometry={geometry}>
       <meshStandardMaterial color={color} roughness={0.55} metalness={0.05} />
     </mesh>
   );
+  if (!placement) return body;
+  return (
+    <group matrix={placement} matrixAutoUpdate={false}>
+      {body}
+    </group>
+  );
 }
 
+const CUT_COLOR = "#ff9f43";
+
+/** A cut as a translucent rectangle: the face of its bounds at axis = at. */
+function CutPlaneMesh({ plane }: { plane: CutPlane }) {
+  const corners = useMemo(() => {
+    const { axis, at, bounds } = plane;
+    const [u, v] = [0, 1, 2].filter((k) => k !== axis);
+    const corner = (a: "min" | "max", b: "min" | "max"): Vec3 => {
+      const p: Vec3 = [0, 0, 0];
+      p[axis] = at;
+      p[u] = bounds[a][u];
+      p[v] = bounds[b][v];
+      return p;
+    };
+    return [corner("min", "min"), corner("max", "min"), corner("max", "max"), corner("min", "max")];
+  }, [plane]);
+  const geometry = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute("position", new BufferAttribute(new Float32Array(corners.flat()), 3));
+    g.setIndex([0, 1, 2, 0, 2, 3]);
+    return g;
+  }, [corners]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <>
+      <mesh geometry={geometry} renderOrder={1}>
+        <meshBasicMaterial
+          color={CUT_COLOR}
+          transparent
+          opacity={0.25}
+          side={DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+      <Line points={[...corners, corners[0]]} color={CUT_COLOR} lineWidth={1.5} />
+    </>
+  );
+}

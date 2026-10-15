@@ -1,4 +1,6 @@
 import type { ManifoldToplevel } from "manifold-3d";
+import type { Bounds } from "./bounds";
+import type { Mat4 } from "./mat4";
 
 export type ManifoldLib = ManifoldToplevel;
 
@@ -81,14 +83,29 @@ export type Part = {
    * one STL folder. Same naming rules as `name`.
    */
   assembly?: string;
+  /**
+   * Where this part sits in the assembled model: maps its print-pose coordinates to the
+   * assembled frame. Preview only; exports use the print pose. When any part sets it, the
+   * preview offers an assembled view showing just those parts, so leave it off a part that
+   * duplicates others there (a whole-model print next to its pieces).
+   */
+  assembled?: Mat4;
 };
 
 export type ExtraFile = { path: string; content: string };
+
+/**
+ * An axis-aligned plane where the model is cut into parts, drawn in the assembled view as the
+ * face of `bounds` at `axis` = `at` (assembled frame).
+ */
+export type CutPlane = { name: string; axis: 0 | 1 | 2; at: number; bounds: Bounds };
 
 export type GeneratorResult = {
   parts: Part[];
   extraFiles?: ExtraFile[];
   warnings?: string[];
+  /** Cuts to show in the assembled view. */
+  cutPlanes?: CutPlane[];
 };
 
 export type BuildContext = { wasm: ManifoldLib };

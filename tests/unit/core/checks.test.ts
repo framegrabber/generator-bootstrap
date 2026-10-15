@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkResult, type PrintBed } from "../../../src/core/checks";
+import { IDENTITY, type Mat4 } from "../../../src/core/mat4";
 import type { Part } from "../../../src/core/types";
 
 const BED: PrintBed = { width: 200, depth: 100, height: 50 };
@@ -52,6 +53,7 @@ describe("checkResult", () => {
           { ...boxPart("q", [1, 1, 1]), quantity: 1.5 },
           { ...boxPart("c", [1, 1, 1]), color: "red" },
           empty,
+          { ...boxPart("m", [1, 1, 1]), assembled: [...IDENTITY.slice(0, 15), NaN] as Mat4 },
         ],
       },
       BED,
@@ -62,6 +64,7 @@ describe("checkResult", () => {
       'Part "q": quantity must be a whole number of at least 1',
       'Part "c": color must be #rrggbb',
       'Part "empty": mesh is empty',
+      'Part "m": assembled must be 16 finite numbers',
     ]);
   });
 

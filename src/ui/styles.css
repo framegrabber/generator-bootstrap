@@ -207,6 +207,11 @@ button.primary {
   font-size: 12px;
 }
 
+.view-toolbar button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .field textarea {
   resize: vertical;
 }
