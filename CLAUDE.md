@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Agent guide (CLAUDE.md; AGENTS.md links here)
 
-Starter kit for browser-only parametric 3D-print generators. Each generator is a folder: a typed definition (params, validation) and a build module (values → printable parts). Geometry runs in a Web Worker with manifold-3d. The app previews in Three.js and exports STL or 3MF in a ZIP. Everything is client-side; there is no backend.
+Starter kit for browser-only parametric 3D-print generators. Each generator is a folder: a typed definition (params, validation) and a build module (values → printable parts). Geometry runs in a Web Worker with manifold-3d. The app previews in Three.js and exports a ZIP with a 3MF and STL files. Everything is client-side; there is no backend.
 
 Most work in a project built on this base happens in `src/generators/<id>/`. The rest of `src/` is shared infrastructure that rarely needs to change. Read "Where to change things" before editing outside a generator folder.
 
@@ -16,6 +16,38 @@ npm run new-generator -- <id> "<Name>"   # scaffold src/generators/<id>/
 ```
 
 Before calling any change done, run `npm run lint`, `npm test`, and `npm run build` (the build runs `tsc -b` across app, test, and config projects). Run `npm run e2e` when the UI, the default generator, export, or persistence changed. CI (`.github/workflows/deploy.yml`) runs all four and then deploys `dist/` to GitHub Pages.
+
+## Working method
+
+What worked in earlier sessions on this repo. Follow it unless the user asks otherwise.
+
+**Plan, then build in slices.**
+- For a new feature with open questions, run the `idea-refine` skill (`.claude/skills/`) and write the one-pager to `docs/ideas/<name>.md`. Get the user's answers before building; record their decisions in the doc and commit it. When the feature lands, add a `Status:` line with the implementing commits and any deviation from the plan (see `docs/ideas/lettering.md`).
+- Build in slices that each pass lint, tests, and build, and commit each one. Commit messages say what changed and why, including findings a reader could not get from the diff (e.g. "opentype.js shaping throws on Inter's GSUB").
+- Update this file in the same change as the code it describes. Stale guidance here costs the next session more than missing guidance.
+- When the user is away and asks you to keep going, make the conservative choice, write it down in the commit or the idea doc, and list every such choice in the final summary.
+
+**Spike unfamiliar libraries before designing on them.** Write a throwaway test (`tests/unit/zz-*.test.ts`) that exercises the exact call, run it, then delete it. This surfaced every library surprise so far: opentype.js text shaping crashing on Inter, Inter's kerning being unreadable, and Vitest's `?url` imports not being fetchable. Read the dependency's source in `node_modules` (or upstream) instead of guessing; the slicer behaviour below came from Bambu Studio's `src/libslic3r/Format/bbs_3mf.cpp`.
+
+**Verify slicer output in a real slicer.** The user prints with Bambu Studio (2.7.1, `/Applications/BambuStudio.app`). What the slicer shows is ground truth; a 3MF that unit tests accept can still load badly. To check without the GUI:
+1. A throwaway test writes the file: `writeFile("/tmp/probe/x.3mf", new Uint8Array(await partsTo3mf((await buildWith("name-tag", {...})).parts, "App")))`.
+2. `/Applications/BambuStudio.app/Contents/MacOS/BambuStudio --outputdir /tmp/probe/out --export-3mf out.3mf /tmp/probe/x.3mf`. The output dir must be absolute; a relative one exits with code 243 and writes nothing.
+3. Read `Metadata/model_settings.config` in the output to see object names, part names, and filament (`extruder`) assignments as Bambu understood them.
+
+PrusaSlicer is not installed. Its importer is `src/libslic3r/Format/3mf.cpp`; `raw.githubusercontent.com` 404s on `master` for that path, so fetch it at a release tag such as `version_2.9.2`.
+
+**Look at the UI, not just the tests.**
+- Screenshots with WebGL: launch Playwright's Chromium with `--use-gl=angle --use-angle=swiftshader`. A build has finished when `button.primary` (Download ZIP) is enabled, so wait for that instead of sleeping.
+- Test the production build the way GitHub Pages serves it: copy `dist/` into a subfolder (`/tmp/pages/app/`), serve the parent with `python3 -m http.server`, and open `/app/`. This catches worker asset URLs that work in dev but break under `base: "./"`. Watch for failed requests and console errors.
+- In Bun scripts, import JSZip from `jszip/dist/jszip.min.js`; the package entry needs Node's `setimmediate`.
+
+**Tests that catch real bugs.**
+- Geometry: compare against closed-form volumes or bounds (`signedVolume`, `boundsOf`), not snapshots.
+- When adding a guard (newest-wins, validation boundary), invert it, run the suite, and restore it. If the suite stays green, the test is missing. This found the untested newest-wins guard in the build scheduler.
+- e2e finds fields with `getByLabel`. Fields use a separate `<label htmlFor>`; a label wrapping a textarea or select puts the control's current value into its accessible name and breaks those lookups.
+- `playwright.config.ts` reuses a server already listening on port 5174 outside CI. Stop stale dev servers before trusting a local e2e run.
+
+**Formatting.** Prettier is configured (`.prettierrc`) but not enforced, and several files are not Prettier-clean. Run `npx prettier --write` on the files you changed only; `npm run format` rewrites unrelated files and buries the real diff.
 
 ## Starting a new project from this base
 
@@ -79,7 +111,7 @@ A generator lives in `src/generators/<id>/`; the folder name must equal `id` (th
 - `src/generators/` — one folder per generator. `index.ts` is the registry (`GENERATORS` sorted by name, `findGenerator`). `builds.ts` lazy-loads `<id>/build.ts` and is imported only by the worker.
 - `src/build/` — `run.ts` is the worker pipeline (validate → load build → build → checks); `worker.ts` wires messages; `worker-client.ts` is the coalescing client.
 - `src/state/` — `params-store.ts` (zustand), `build-store.ts` (`startBuildSync`, `useBuild`, `canExport`), `view-store.ts` (`fitPending`), `snapshot.ts` (`{generator, values}`, `restoreSnapshot`), `persistence.ts` (URL `?p=` and localStorage).
-- `src/exporters/` — `export.ts` (`EXPORT_FORMATS`, `exportEntries`), `formats/stl.ts`, `formats/threemf.ts`, `zip.ts`, `filename.ts`, `readme.ts`, `settings.ts`, `download.ts`.
+- `src/exporters/` — `export.ts` (`MESH_FORMATS`, `exportEntries`), `formats/stl.ts`, `formats/threemf.ts` (`modelXml`, `bambuModelSettingsXml`, `filamentNumbers`, `partsTo3mf`), `zip.ts`, `filename.ts`, `readme.ts`, `settings.ts`, `download.ts` (`downloadBlob`, `pickFile`).
 - `src/App.tsx` — root layout. `src/ui/` — `ParamsPanel`, `NumberField`, `FontField` (bundled and uploaded fonts, upload/remove), `ExportButtons`, `Preview`, `fit.ts`, `geometry.ts`, `styles.css`.
 - `src/app-config.ts` — `APP.name`, `APP.slug`, `PRINT_BED`.
 - `scripts/new-generator.mjs` — the scaffold.
@@ -113,6 +145,25 @@ A generator lives in `src/generators/<id>/`; the folder name must equal `id` (th
 - `NumberField` keeps local string state so users can clear the field or type `5.` without the value snapping back. Don't simplify it to a plain controlled input.
 - Don't add a File System Access API path; export and settings use anchor download and `<input type=file>`.
 - Don't add a backend or network calls; the app must work as static files.
+- No `any` and no inline casts for member access (`(x as { a: T }).a`); narrow with `in`/`typeof`. A cast to a select param's option union is fine with a one-line comment (see `align` in `name-tag/build.ts`).
+- Static imports only. Dynamic `import()` belongs in the registry's `import.meta.glob` and in `vi.mock` factories, which are hoisted above static imports.
+- Errors thrown from a `catch` carry `{ cause }` (ESLint `preserve-caught-error`).
+- Export decisions follow the user's preference: every ZIP contains every format (no format picker), file names are short and flat, and part names describe the shape.
+
+## Known gaps
+
+Open items from earlier sessions; check here before re-investigating.
+
+- Bambu Studio puts the text part on filament 2 but does not add a second filament slot to the project; the user adds it by hand. Writing `Metadata/project_settings.config` would add it, but that file also carries printer and filament presets and could override the user's.
+- PrusaSlicer and OrcaSlicer imports are untested. PrusaSlicer ignores `model_settings.config` and should load each part as a separate object in place (from its source).
+- Inter renders unkerned: opentype.js cannot read the GPOS extension lookups that hold Inter's kerning.
+- Name tag through-cuts leave letter middles (O, A, B) as loose islands; the build warns. Stencil bridges are not implemented.
+- The worker caches parsed fonts for the session, so a removed upload keeps rendering until reload. Harmless: the picker switches back to Inter.
+- Nothing has been printed yet; the two-colour 3MF has only been checked through the Bambu Studio CLI.
+
+## Related repo
+
+`../lightbox` (lightbox letter generator) is where the font pipeline came from: `src/geometry/flatten.ts`, `scale.ts`, `layout.ts`, `src/fonts/`. Its exports put each shape in its own folder because a lightbox has many separate shells; this repo's generators produce few parts, so STL files stay flat. Port ideas from it deliberately, not wholesale.
 
 ## Tooling
 
