@@ -1,4 +1,9 @@
-import { batteryParams, displayParams, validateDisplay } from "../../characters/hardware";
+import {
+  batteryParams,
+  displayParams,
+  migrateDisplay,
+  validateDisplay,
+} from "../../characters/hardware";
 import { cutParams, headParams, printParams, validateCharacter } from "../../characters/kit";
 import type { GeneratorDef } from "../../core/types";
 import { dogLayout } from "./layout";
@@ -133,6 +138,7 @@ const displayDog: GeneratorDef = {
       accentColor: "#4a3428",
     }),
   ],
+  migrate: migrateDisplay,
   validate(values) {
     const display = validateDisplay(values);
     if (display.length > 0) return display;

@@ -47,8 +47,9 @@ const LEGACY_KEY = "p";
 
 /**
  * The snapshot as readable query parameters: `g=<generator>` plus `key=value` for each value
- * that differs from its default. A default robot is `g=display-robot`. Defaults are left out,
- * so a link follows a default when it changes. Param keys must not be "g" or "p".
+ * that differs from its default, or whose param is `alwaysInLink`. A default robot is
+ * `g=display-robot&display=…`. Other defaults are left out, so a link follows them when they
+ * change. Param keys must not be "g" or "p".
  */
 export function snapshotQuery(
   snapshot: Snapshot,
@@ -58,7 +59,9 @@ export function snapshotQuery(
   const def = findGenerator(snapshot.generator, generators);
   for (const spec of def?.params ?? []) {
     const value = snapshot.values[spec.key];
-    if (value !== undefined && value !== spec.default) query.set(spec.key, String(value));
+    if (value !== undefined && (spec.alwaysInLink || value !== spec.default)) {
+      query.set(spec.key, String(value));
+    }
   }
   return query.toString();
 }

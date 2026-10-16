@@ -1,4 +1,9 @@
-import { batteryParams, displayParams, validateDisplay } from "../../characters/hardware";
+import {
+  batteryParams,
+  displayParams,
+  migrateDisplay,
+  validateDisplay,
+} from "../../characters/hardware";
 import { cutParams, headParams, printParams, validateCharacter } from "../../characters/kit";
 import type { GeneratorDef, Params } from "../../core/types";
 import { robotLayout } from "./layout";
@@ -104,6 +109,7 @@ const displayRobot: GeneratorDef = {
       accentColor: "#6fd3c8",
     }),
   ],
+  migrate: migrateDisplay,
   validate(values) {
     const display = validateDisplay(values);
     if (display.length > 0) return display;

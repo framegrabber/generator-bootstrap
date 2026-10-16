@@ -77,6 +77,15 @@ describe("URL query", () => {
     expect(snapshotQuery(defaultSnapshot(generators), generators)).toBe("g=fixture");
   });
 
+  it("always writes a param marked alwaysInLink, even at its default", () => {
+    const pinned = {
+      ...rich,
+      params: rich.params.map((p) => ({ ...p, alwaysInLink: p.key === "mode" })),
+    };
+    expect(roundTrip({}, [pinned]).query).toBe("g=fixture&mode=a");
+    expect(roundTrip({ mode: "b" }, [pinned]).query).toBe("g=fixture&mode=b");
+  });
+
   it("writes only changed values, readable, and reads them back exactly", () => {
     const { query, restored, snapshot } = roundTrip({
       width: 12.5,

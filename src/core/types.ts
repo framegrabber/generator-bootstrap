@@ -19,6 +19,11 @@ type ParamBase = {
    * checks, so `validate` must not rely on a hidden param being in range.
    */
   visibleWhen?: (values: Params) => boolean;
+  /**
+   * Written into share links even at its default, so a link keeps its meaning when the default
+   * changes later. Give links written before that a `migrate` that fills in the old default.
+   */
+  alwaysInLink?: boolean;
 };
 
 export type NumberParam = ParamBase & {

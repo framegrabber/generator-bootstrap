@@ -197,6 +197,17 @@ const isCustomRect = (v: Params) => isCustom(v) && v.customShape === "rect";
 const hasUsb = (v: Params) =>
   Object.entries(DISPLAYS).some(([id, d]) => id === v.display && d.module.usb);
 
+/** The display every link written before the 2.8" board became the default meant. */
+const FORMER_DEFAULT_DISPLAY = "waveshare-s3-touch-lcd-128";
+
+/**
+ * `migrate` for a display character: links from before the display was always written into
+ * them leave it out when it was the default of the time, the round 1.28" touch board.
+ */
+export function migrateDisplay(raw: Record<string, unknown>): Record<string, unknown> {
+  return "display" in raw ? raw : { ...raw, display: FORMER_DEFAULT_DISPLAY };
+}
+
 /** The "Display" param group: catalogue module or custom outline, and the USB-C edge. */
 export function displayParams(): ParamSpec[] {
   const mm = (key: string, label: string, value: number, visibleWhen: (v: Params) => boolean) => ({
@@ -217,7 +228,8 @@ export function displayParams(): ParamSpec[] {
       key: "display",
       label: "Display",
       group: "Display",
-      default: "waveshare-s3-touch-lcd-128",
+      default: "waveshare-s3-touch-lcd-28",
+      alwaysInLink: true,
       options: [
         ...Object.entries(DISPLAYS).map(([value, d]) => ({ value, label: d.label })),
         { value: "custom", label: "Custom" },

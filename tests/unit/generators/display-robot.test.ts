@@ -61,8 +61,10 @@ describe("display-robot build", { timeout: 60_000 }, () => {
   });
 
   it("cuts accents with the pieces and fills their recesses exactly", async () => {
-    const plain = await buildWith(ID, draft({ accentMode: "none" }));
-    const accented = await buildWith(ID, draft({ accentMode: "inplace" }));
+    // The 1.28" board puts the pods across the split.
+    const small = { display: "waveshare-s3-touch-lcd-128" };
+    const plain = await buildWith(ID, draft({ ...small, accentMode: "none" }));
+    const accented = await buildWith(ID, draft({ ...small, accentMode: "inplace" }));
     expect(accented.parts.map((p) => [p.name, p.assembly])).toEqual([
       ["head-front", "face"],
       ["head-back", "rear"],

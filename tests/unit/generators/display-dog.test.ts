@@ -50,16 +50,20 @@ describe("display-dog validate", () => {
   });
 
   it("keeps the head split behind the display pocket", () => {
-    const limit = dogLayout(paramsFor(ID)).pocketBack + 0.5;
-    expect(issueKeys({ headSplitOffset: limit })).toEqual([]);
-    expect(issueKeys({ headSplitOffset: limit - 0.1 })).toContain("headSplitOffset");
-    expect(issueKeys({ headSplitOffset: limit - 0.1, headSplit: false })).toEqual([]);
+    // The 1.28" board's pocket ends within the split's range; the 2.8" board's lies past it.
+    const small = { display: "waveshare-s3-touch-lcd-128" };
+    const limit = dogLayout(paramsFor(ID, small)).pocketBack + 0.5;
+    expect(issueKeys({ ...small, headSplitOffset: limit })).toEqual([]);
+    expect(issueKeys({ ...small, headSplitOffset: limit - 0.1 })).toContain("headSplitOffset");
+    expect(issueKeys({ ...small, headSplitOffset: limit - 0.1, headSplit: false })).toEqual([]);
   });
 
-  it("keeps the neck cut below the display", () => {
+  it("keeps the neck cut below the display and its cable room", () => {
     const L = dogLayout(paramsFor(ID));
-    // The head's hollow floor sits wall + 2 above the cut and must stay a wall below the display.
-    const limit = L.cz - L.footprint.bottom - L.wall - (L.wall + 2) - L.neck.anatomyZ;
+    // The head's hollow floor sits wall + 2 above the cut. It must stay a wall below the
+    // display, and below the room the board's plugs need under it (USB-C on the right).
+    expect(L.room.bottom).toBeGreaterThan(L.wall);
+    const limit = L.cz - L.footprint.bottom - L.room.bottom - (L.wall + 2) - L.neck.anatomyZ;
     expect(issueKeys({ neckCutOffset: Math.floor(limit) })).toEqual([]);
     expect(issueKeys({ neckCutOffset: limit + 0.1 })).toContain("neckCutOffset");
   });
@@ -162,8 +166,9 @@ describe("display-dog build", { timeout: 60_000 }, () => {
       min: [0, 1, 2].map((k) => Math.min(...placed.map((b) => b.min[k]))),
       max: [0, 1, 2].map((k) => Math.max(...placed.map((b) => b.max[k]))),
     };
-    // Same size as the uncut dog, standing on the bed with its face toward -y.
-    size(union).forEach((v, i) => expect(v).toBeCloseTo(size(boundsOf([whole!.mesh])!)[i], 1));
+    // Same size as the uncut dog, standing on the bed with its face toward -y. A cut through a
+    // pointed tip can leave a sub-0.1 mm sliver on the uncut one, hence whole millimetres.
+    size(union).forEach((v, i) => expect(v).toBeCloseTo(size(boundsOf([whole!.mesh])!)[i], 0));
     expect(union.min[2]).toBeCloseTo(0, 3);
     const front = transformBounds(pieces[0].assembled!, boundsOf([pieces[0].mesh])!);
     expect(front.max[1]).toBeCloseTo(0, 3);
