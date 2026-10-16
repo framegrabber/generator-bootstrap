@@ -172,6 +172,7 @@ Open items from earlier sessions; check here before re-investigating.
 - Display dog: cut position and neck tilt are numeric fields; there is no dragging a plane in the preview, and the head split cannot rotate. A cut through a thin feature only warns, and the stray piece is exported as part of its piece.
 - Display dog and robot: the battery is only checked to fit behind the display; nothing holds it in place (with the 2.8" board it lies inside the spacer's frame, still loose).
 - Display robot: not printed; only the Bambu Studio CLI import was checked (objects face, rear, torso, whole; accents on filament 2).
+- 2.8" board (`waveshare-s3-touch-lcd-28`): dimensions come from the vendor STEP model, so they are better than the 1.28" estimates, but nothing has been printed. Untested on hardware: the R6 speaker pocket corners (the speaker's own radius is unknown), whether a paperclip reaches the buttons through the Ø1.6 pin holes, whether the spacer clamps the board without rattling, and the 13 × 7 mm plug opening (sized for the user's 12.2 × 6.3 plug). Pointy speaker ears grow large (about 65 × 48 mm with default params).
 
 ## Related repo
 

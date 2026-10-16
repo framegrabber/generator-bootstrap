@@ -1,6 +1,15 @@
 # 2.8" board with speakers (ESP32-S3-Touch-LCD-2.8)
 
-Status: planned.
+Status: implemented (commits 8983bfe, fde3565, 0f726fd, a6ff07a, b42bf0a). Deviations from the plan below:
+
+- Rectangular displays get a pillowy rounded-box head instead of the ellipsoid: a rectangle's corners only fit an ellipsoid about 1.4 times its size, so the flat face stuck out of it like a box (the TV-head look rejected earlier). Round displays keep the ellipsoid. The dowel bosses and the dog's ears are now placed on the real head surface (`surfaceAlong`) instead of by ellipse formulas.
+- Speaker pockets keep a fixed 1.6 mm wall beside and behind them instead of the shell wall: the flattened ears thin toward their edges.
+- How much the dog's ears grow with the default face: pointy about 3.4× (65 × 48 mm, fennec-like, because a cone tapers too fast for a 30 mm rectangle), round about 2.55× (50 × 36 mm), floppy about 2.1×. The growth limit is 3.5×; beyond it validation asks for round or floppy ears.
+- Floppy ears hang beside the head, so their speaker leads go straight into the head instead of down the ear.
+- The robot's pods sit 1.4 mm behind the split by default: they move back only as far as the side USB-C opening in front of them needs. With the dog, the speakers pin the head split to ±2 mm around the ears' middle.
+- The spacer has sockets over the standoffs and no screws, as planned. The battery lies inside its frame but is still loose.
+- Tests that check the 1.28" board's geometry (split limit, accent names) pin that board; the default board's spacer and speaker rules have their own tests.
+- Bambu Studio 2.7.1 CLI: the default dog loads as objects face (head-front, nose, inner ears), head-back, body, spacer, whole; the robot as face, rear, torso, spacer, whole; accents on filament 2. Nothing printed yet.
 
 ## Problem Statement
 
