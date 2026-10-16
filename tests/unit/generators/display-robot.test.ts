@@ -49,6 +49,11 @@ describe("display-robot build", { timeout: 60_000 }, () => {
     ["bare module with a cable hole", { display: "gc9a01-module" }],
     ["rectangular custom display", { display: "custom", customShape: "rect" }],
     ["USB-C on the left, tilted neck", { usbEdge: "left", neckCutTilt: -15 }],
+    ['2.8" board, USB-C on the right', { display: "waveshare-s3-touch-lcd-28" }],
+    [
+      '2.8" board, USB-C on top, no antenna',
+      { display: "waveshare-s3-touch-lcd-28", usbEdge: "top", antenna: "none" },
+    ],
   ])("prints with %s as single pieces resting on the bed", async (_, overrides: Params) => {
     const result = await buildWith(ID, draft(overrides));
     expect(result.warnings).toEqual([]);

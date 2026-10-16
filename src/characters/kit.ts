@@ -3,7 +3,6 @@ import {
   boxAround,
   boxDistance,
   ellipsoid,
-  normalize,
   roundBox,
   roundCylinder,
   smoothUnion,
@@ -19,6 +18,7 @@ import {
   selectedBattery,
   selectedEdge,
   selectedModule,
+  turnEdge,
   type DisplayModule,
   type Edge,
 } from "./hardware";
@@ -29,8 +29,8 @@ import {
  * display, and the params for all of that. Pure math, main-thread safe; `assemble.ts` turns a
  * `CharacterLayout` into parts in the worker.
  *
- * Frame: Z up, millimetres, the face looking toward -Y, the display centred on x = 0, the head
- * centred on (0, 0, cz), the head split at y = split.y.
+ * Frame: Z up, millimetres, the face looking toward -Y, the display's visible area centred on
+ * x = 0, the head centred on (0, 0, cz), the head split at y = split.y.
  */
 
 /** Gap between the module and its pocket on every side. */
@@ -41,10 +41,6 @@ export const POCKET_RIM = 4;
 export const DOWEL = { diameter: 1.75, depth: 3 };
 /** Bosses inside the head that carry the dowel holes: radius and half-length across the split. */
 export const BOSS = { radius: 3.2, half: 4 };
-/** USB-C plug overmold opening: across the port and front-to-back. */
-export const USB_OPENING = { width: 13, height: 7.5 };
-/** Height of the USB-C receptacle centre above the module's back face. */
-const USB_CENTRE_FROM_BACK = 1.6;
 const MESH_EDGE: Record<string, number> = { draft: 1.4, normal: 1, fine: 0.6 };
 const deg = Math.PI / 180;
 
@@ -66,7 +62,20 @@ export type Neck = {
 /** Front/back split of the head (or the whole character, without a neck cut) at y = `y`. */
 export type Split = { cut: boolean; y: number };
 export type Port =
-  | { kind: "usb"; y: number; angle: number; from: number; to: number }
+  | {
+      kind: "usb";
+      /** Depth of the plug's centre. */
+      y: number;
+      /** Direction the plug points out of the face, degrees from up (see EDGE_ANGLE). */
+      angle: number;
+      /** Offset across that direction, and the opening's extent along it from the centre. */
+      along: number;
+      from: number;
+      to: number;
+      /** The plug's grip: across, and front to back. */
+      width: number;
+      height: number;
+    }
   | { kind: "cable"; z: number; radius: number };
 
 /** Face and head size, which follow from the display; everything but the head's height. */
@@ -74,25 +83,31 @@ export type HeadSize = {
   module: DisplayModule;
   /** Edge the module's tab and port face. */
   edge: Edge;
-  /** Footprint half-extents in the face plane (x, z), clearance included. */
-  footprint: { radius: number; halfX: number; halfZ: number };
+  /** How far the module reaches from the display centre toward each face edge, clearance included. */
+  footprint: Record<Edge, number>;
+  /** Free space the hollow keeps past the footprint, per face edge (cable plugs, a card). */
+  room: Record<Edge, number>;
+  /** Half-extents of the visible area on the face (x, z). */
+  view: { halfX: number; halfZ: number };
   /** The flat face around the display: round for round displays. */
   pad: { round: boolean; halfX: number; halfZ: number };
-  /** Head ellipsoid semi-axes. */
+  /** Head semi-axes. */
   radii: Vec3;
+  /** Corner radius of a rounded-box head (rectangular displays); null for an ellipsoid. */
+  corner: number | null;
   faceY: number;
   /** Back face of the module, clearance included. */
   pocketBack: number;
 };
 
-export type CharacterLayout = Omit<HeadSize, "radii"> & {
+export type CharacterLayout = Omit<HeadSize, "radii" | "corner"> & {
   meshEdge: number;
   wall: number;
   fit: number;
   softness: number;
   /** Height of the display centre, which is also the head centre. */
   cz: number;
-  head: { radii: Vec3 };
+  head: { radii: Vec3; corner: number | null };
   neck: Neck;
   split: Split;
   /** Dowel boss axes (along y, at the split plane) at these (x, z). */
@@ -108,30 +123,56 @@ export function headSize(values: Params): HeadSize {
   const wall = num(values, "wall");
   const c = POCKET_CLEARANCE;
   const { shape, tab } = module;
-  const outlineX = (shape.kind === "round" ? shape.diameter : shape.width) / 2 + c;
-  const outlineZ = (shape.kind === "round" ? shape.diameter : shape.height) / 2 + c;
-  const tabReach = tab
-    ? (shape.kind === "round" ? shape.diameter / 2 : outlineZ) + tab.beyond + c
-    : 0;
-  const sideways = edge === "left" || edge === "right";
-  const halfX = Math.max(outlineX, sideways ? tabReach : 0);
-  const halfZ = Math.max(outlineZ, sideways ? 0 : tabReach);
-  const margin = num(values, "faceMargin");
   const round = shape.kind === "round";
-  const padHalfX = round ? Math.max(halfX, halfZ) + margin : halfX + margin;
-  const padHalfZ = round ? Math.max(halfX, halfZ) + margin : halfZ + margin;
-  // An ellipsoid a little larger than the face pad, deep enough for the module.
-  const rx = padHalfX + 3;
-  const rz = padHalfZ + 2;
+  const offset = module.outlineOffset ?? 0;
+  const halfU = (round ? shape.diameter : shape.width) / 2;
+  const halfV = round ? halfU : shape.height / 2;
+  // Reach toward each edge of the module frame, then turned onto the face.
+  const reach: Record<Edge, number> = {
+    left: halfU + c,
+    right: halfU + c,
+    bottom: halfV - offset + c,
+    top: halfV + offset + c + (tab ? tab.beyond : 0),
+  };
+  // The hollow keeps the module's room free past the outline; the pad is a wall thicker.
+  const margin = num(values, "faceMargin");
+  const footprint: Record<Edge, number> = { top: 0, left: 0, bottom: 0, right: 0 };
+  const room = { ...footprint };
+  const padReach = { ...footprint };
+  for (const side of ["top", "left", "bottom", "right"] as const) {
+    const faceSide = turnEdge(side, edge);
+    footprint[faceSide] = reach[side];
+    room[faceSide] = module.room?.[side] ?? 0;
+    padReach[faceSide] = reach[side] + Math.max(margin, room[faceSide] + wall);
+  }
+  // The face is centred on the visible area, so the pad reaches as far as its farther side.
+  const padHalfX = Math.max(padReach.left, padReach.right);
+  const padHalfZ = Math.max(padReach.bottom, padReach.top);
+  const padRadius = Math.max(padHalfX, padHalfZ);
+  const sideways = edge === "left" || edge === "right";
+  const [viewU, viewV] = round
+    ? [shape.viewDiameter / 2, shape.viewDiameter / 2]
+    : [shape.viewWidth / 2, shape.viewHeight / 2];
+  const pad = round
+    ? { round, halfX: padRadius, halfZ: padRadius }
+    : { round, halfX: padHalfX, halfZ: padHalfZ };
+  // A head a little larger than the face pad, deep enough for the module: an ellipsoid behind
+  // a round display, a pillowy rounded box behind a rectangle (a rectangle's corners only fit
+  // an ellipsoid ~1.4 times its size, so the pad would stick out of it like a box).
+  const rx = pad.halfX + 3;
+  const rz = pad.halfZ + 2;
   const minDepth = (wall + module.thickness + c + 2.5) / 0.85;
   const ry = Math.max((rx * num(values, "headDepth")) / 100, minDepth);
   const faceY = -0.85 * ry;
   return {
     module,
     edge,
-    footprint: { radius: Math.max(outlineX, outlineZ), halfX, halfZ },
-    pad: { round, halfX: padHalfX, halfZ: padHalfZ },
+    footprint,
+    room,
+    view: sideways ? { halfX: viewV, halfZ: viewU } : { halfX: viewU, halfZ: viewV },
+    pad,
     radii: [rx, ry, rz],
+    corner: round ? null : 0.4 * Math.min(rx, ry, rz),
     faceY,
     pocketBack: faceY + wall + module.thickness + c,
   };
@@ -146,8 +187,8 @@ export function characterLayout(
   head: HeadSize,
   where: { cz: number; anatomyZ: number; neckRadius: number },
 ): CharacterLayout {
-  const { radii, ...face } = head;
-  const [rx, ry, rz] = radii;
+  const { radii, corner, ...face } = head;
+  const [rx, , rz] = radii;
   const { cz, anatomyZ, neckRadius } = where;
   const wall = num(values, "wall");
   const neckCut = bool(values, "neckCut");
@@ -164,26 +205,35 @@ export function characterLayout(
   const split: Split = { cut: splitCut, y: splitCut ? num(values, "headSplitOffset") : 0 };
 
   // Dowel bosses on the upper sides of the head's cross-section at the split plane, just inside
-  // the wall.
-  const across = Math.sqrt(Math.max(0, 1 - (split.y / ry) ** 2));
+  // the wall, found on the actual surface (head and pad blended).
+  const softness = num(values, "softness");
+  const core = headCoreSdf({
+    head: { radii, corner },
+    pad: face.pad,
+    faceY: face.faceY,
+    cz,
+    softness,
+  });
+  const reach = Math.hypot(rx, rz) + 5;
   const bosses = [-1, 1].map((side) => {
     const t = 50 * deg;
-    const [ex, ez] = [rx * across, rz * across];
-    const px = side * ex * Math.sin(t);
-    const pz = ez * Math.cos(t);
-    const n = normalize([px / ex ** 2, 0, pz / ez ** 2]);
-    const inward = wall + 2.2;
-    return [px - n[0] * inward, cz + pz - n[2] * inward] as const;
+    const dir: Vec3 = [side * Math.sin(t), 0, Math.cos(t)];
+    const surface = surfaceAlong(core, (s) => [dir[0] * s, split.y, cz + dir[2] * s], reach);
+    const inward = surface - wall - 2.2;
+    return [dir[0] * inward, cz + dir[2] * inward] as const;
   });
 
-  const { halfX, halfZ } = face.footprint;
-  const port: Port = face.module.usb
+  const { usb } = face.module;
+  const port: Port = usb
     ? {
         kind: "usb",
-        y: face.pocketBack - POCKET_CLEARANCE - USB_CENTRE_FROM_BACK,
+        y: face.faceY + wall + usb.depth,
         angle: EDGE_ANGLE[face.edge],
-        from: 0.5 * Math.min(halfX, halfZ),
+        along: usb.along,
+        from: 0.5 * Math.min(...Object.values(face.footprint)),
         to: Math.max(rx, rz) + 10,
+        width: num(values, "usbPlugWidth"),
+        height: num(values, "usbPlugHeight"),
       }
     : { kind: "cable", z: cz - 0.45 * rz, radius: 3 };
 
@@ -192,9 +242,9 @@ export function characterLayout(
     meshEdge: MESH_EDGE[str(values, "detail")],
     wall,
     fit: num(values, "fit"),
-    softness: num(values, "softness"),
+    softness,
     cz,
-    head: { radii },
+    head: { radii, corner },
     neck,
     split,
     bosses,
@@ -213,13 +263,33 @@ export function neckHeightAt(neck: Neck, y: number): number {
   return neck.z - y * Math.tan(neck.tilt * deg);
 }
 
-/** Head ellipsoid plus the face pad, cut flat at the face. This is the part that is hollowed. */
-export function headCoreSdf(L: CharacterLayout): Sdf {
+/**
+ * Distance along a ray from inside a solid to its surface: `at(s)` is the point s along the
+ * ray, inside at 0 and outside at `reach`. Bisection, so it needs no exact distance field.
+ */
+export function surfaceAlong(sdf: Sdf, at: (s: number) => Vec3, reach: number): number {
+  let [inside, outside] = [0, reach];
+  for (let i = 0; i < 30; i++) {
+    const mid = (inside + outside) / 2;
+    if (sdf(at(mid)) < 0) inside = mid;
+    else outside = mid;
+  }
+  return (inside + outside) / 2;
+}
+
+/** Head (ellipsoid or rounded box) plus the face pad, cut flat at the face: what is hollowed. */
+export function headCoreSdf(
+  L: Pick<CharacterLayout, "head" | "pad" | "faceY" | "cz" | "softness">,
+): Sdf {
   const [rx, ry, rz] = L.head.radii;
+  const { corner } = L.head;
   const padCenter: Vec3 = [0, L.faceY / 2, L.cz];
   const padHalfY = -L.faceY / 2;
   return (p) => {
-    const head = ellipsoid(p, [0, 0, L.cz], [rx, ry, rz]);
+    const head =
+      corner === null
+        ? ellipsoid(p, [0, 0, L.cz], [rx, ry, rz])
+        : roundBox(p, [0, 0, L.cz], [rx, ry, rz], corner);
     const pad = L.pad.round
       ? roundCylinder(p, padCenter, 1, L.pad.halfX, padHalfY, 3)
       : roundBox(p, padCenter, [L.pad.halfX, padHalfY, L.pad.halfZ], 3);
@@ -347,11 +417,13 @@ export function validateCharacter(
   }
   if (L.neck.cut) {
     // The hollow's floor runs wall + 2 above the cut, parallel to it; under the display it
-    // must stay a wall below the display's lowest point, front and back of the module.
+    // must stay a wall below the display's lowest point (its pocket rim), and below the room
+    // the module keeps free there, front and back.
     const cos = Math.cos(L.neck.tilt * deg);
     const floorAt = (y: number) => neckHeightAt(L.neck, y) + (L.wall + 2) / cos;
-    const displayBottom = L.cz - L.footprint.halfZ;
-    if (Math.max(floorAt(L.faceY), floorAt(L.pocketBack)) > displayBottom - L.wall) {
+    const displayBottom = L.cz - L.footprint.bottom;
+    const limit = Math.min(displayBottom - L.wall, displayBottom - L.room.bottom);
+    if (Math.max(floorAt(L.faceY), floorAt(L.pocketBack)) > limit) {
       issues.push({
         key: "neckCutOffset",
         message: "The neck cut runs into the display; move it down or tilt it less.",

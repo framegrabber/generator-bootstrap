@@ -29,6 +29,16 @@ export function translation([x, y, z]: Readonly<Vec3>): Mat4 {
   return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
 }
 
+/** Places a local frame: its x, y, z axes (unit, right-handed) and origin, in world space. */
+export function frame(
+  origin: Readonly<Vec3>,
+  x: Readonly<Vec3>,
+  y: Readonly<Vec3>,
+  z: Readonly<Vec3>,
+): Mat4 {
+  return [...x, 0, ...y, 0, ...z, 0, ...origin, 1];
+}
+
 /** Rotation about the X axis by `degrees`, counter-clockwise looking down +X. */
 export function rotationX(degrees: number): Mat4 {
   // Exact for multiples of 90 so print poses land exactly on z = 0.

@@ -59,7 +59,7 @@ describe("display-dog validate", () => {
   it("keeps the neck cut below the display", () => {
     const L = dogLayout(paramsFor(ID));
     // The head's hollow floor sits wall + 2 above the cut and must stay a wall below the display.
-    const limit = L.cz - L.footprint.halfZ - L.wall - (L.wall + 2) - L.neck.anatomyZ;
+    const limit = L.cz - L.footprint.bottom - L.wall - (L.wall + 2) - L.neck.anatomyZ;
     expect(issueKeys({ neckCutOffset: Math.floor(limit) })).toEqual([]);
     expect(issueKeys({ neckCutOffset: limit + 0.1 })).toContain("neckCutOffset");
   });
@@ -109,6 +109,8 @@ describe("display-dog build", { timeout: 60_000 }, () => {
       "USB on top of a deep head",
       { display: "waveshare-s3-lcd-128", usbEdge: "top", headDepth: 120 },
     ],
+    ['2.8" board, USB-C on the left', { display: "waveshare-s3-touch-lcd-28", usbEdge: "left" }],
+    ['2.8" board, USB-C on top', { display: "waveshare-s3-touch-lcd-28", usbEdge: "top" }],
   ])("prints %s as single pieces resting on the bed", async (_, overrides: Params) => {
     // runBuild fails on loose pieces and warns about parts off the bed.
     const result = await buildWith(ID, draft(overrides));

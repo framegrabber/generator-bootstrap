@@ -1,6 +1,14 @@
 import type { CrossSection, Manifold } from "manifold-3d";
 import { solidFromSdf, type Geom } from "../core/geom";
-import { IDENTITY, invertRigid, multiply, rotationX, translation, type Mat4 } from "../core/mat4";
+import {
+  IDENTITY,
+  frame,
+  invertRigid,
+  multiply,
+  rotationX,
+  translation,
+  type Mat4,
+} from "../core/mat4";
 import type { WasmScope } from "../core/manifold";
 import { meshFromManifold, withScope } from "../core/manifold";
 import type { Vec3 } from "../core/bounds";
@@ -12,7 +20,6 @@ import {
   DOWEL,
   POCKET_CLEARANCE,
   POCKET_RIM,
-  USB_OPENING,
   headBounds,
   headCoreSdf,
   neckHeightAt,
@@ -155,30 +162,33 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
       );
 
     // ---- Display footprint, window, and port --------------------------------------------
+    // Drawn in the module's frame (port edge up, visible area centred), then turned onto the
+    // face; round shapes are the same either way.
     const c = POCKET_CLEARANCE;
     const { shape, tab } = L.module;
-    let footprint =
+    const turn = EDGE_ANGLE[L.edge];
+    const offset = L.module.outlineOffset ?? 0;
+    let outline =
       shape.kind === "round"
         ? t(CS.circle(shape.diameter / 2 + c, SEGMENTS))
         : k.roundedRect(shape.width + 2 * c, shape.height + 2 * c, shape.corner + c);
     if (tab) {
       const reach =
         (shape.kind === "round" ? shape.diameter / 2 : shape.height / 2) + tab.beyond + c;
-      const strip = t(
-        t(t(CS.square([tab.width + 2 * c, reach])).translate([-tab.width / 2 - c, 0])).rotate(
-          EDGE_ANGLE[L.edge],
-        ),
-      );
-      footprint = t(footprint.add(strip));
+      const strip = t(t(CS.square([tab.width + 2 * c, reach])).translate([-tab.width / 2 - c, 0]));
+      outline = t(outline.add(strip));
     }
-    const window =
-      shape.kind === "round"
+    const footprint = t(t(outline.translate([0, offset])).rotate(turn));
+    const window = t(
+      (shape.kind === "round"
         ? t(CS.circle(shape.viewDiameter / 2, SEGMENTS))
         : k.roundedRect(
             shape.viewWidth,
             shape.viewHeight,
             Math.min(1.5, shape.viewWidth / 4, shape.viewHeight / 4),
-          );
+          )
+      ).rotate(turn),
+    );
 
     // ---- The whole character: hollow head, pocket rim, window, pocket, port ---------------
     const outer = t(
@@ -208,13 +218,18 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
     ];
     const [, ry] = L.head.radii;
     if (L.port.kind === "usb") {
-      const { y, angle, from, to } = L.port;
-      const slot = t(
-        t(
-          t(CS.square([USB_OPENING.width, to - from])).translate([-USB_OPENING.width / 2, from]),
-        ).rotate(angle),
+      // A slot shaped like the plug's grip (rounded ends), running out along the plug's axis.
+      const { y, angle, along, from, to, width, height } = L.port;
+      const a = (angle * Math.PI) / 180;
+      const [cos, sin] = [Math.cos(a), Math.sin(a)];
+      const grip = k.roundedRect(width, height, Math.min(width, height) / 2 - 0.01);
+      const place = frame(
+        [along * cos - from * sin, y, L.cz + along * sin + from * cos],
+        [cos, 0, sin],
+        [0, 1, 0],
+        [-sin, 0, cos],
       );
-      openings.push(k.prismY(slot, y - USB_OPENING.height / 2, y + USB_OPENING.height / 2, L.cz));
+      openings.push(t(t(grip.extrude(to - from)).transform(place)));
     } else {
       openings.push(k.cylinderY(L.port.radius, 0, ry + 10, 0, L.port.z));
     }

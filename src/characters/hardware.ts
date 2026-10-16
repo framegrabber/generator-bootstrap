@@ -20,29 +20,66 @@ export type ModuleShape =
       viewHeight: number;
     };
 
+/**
+ * A display module in its own frame: u to the right, v toward its port edge (the port edge is
+ * up), origin at the centre of the visible area, millimetres. `usbEdge` turns this frame into
+ * the face; the face is centred on the visible area.
+ */
 export type DisplayModule = {
   /** Outline of the module (glass or board, whichever is larger) and its visible area. */
   shape: ModuleShape;
+  /** Centre of the outline from the centre of the visible area, along v. */
+  outlineOffset?: number;
   /** Front of the glass to the back of the tallest part behind it. */
   thickness: number;
   /** Board area sticking out past the outline at the port edge (pin header, FPC, USB). */
   tab?: { width: number; beyond: number };
-  /** USB-C on the tab edge; the head gets a plug opening there and `usbEdge` picks the edge. */
-  usb: boolean;
+  /**
+   * USB-C on the port edge: its centre's depth behind the glass front and its offset along u.
+   * The head gets a plug opening there, and `usbEdge` picks the edge.
+   */
+  usb?: { depth: number; along: number };
+  /** Free space the hollow must leave past the outline, per edge: cable plugs, a memory card. */
+  room?: Partial<Record<Edge, number>>;
 };
 
 export type DisplayId =
-  "gc9a01-module" | "waveshare-s3-lcd-128" | "waveshare-s3-touch-lcd-128" | "custom";
+  | "gc9a01-module"
+  | "waveshare-s3-lcd-128"
+  | "waveshare-s3-touch-lcd-128"
+  | "waveshare-s3-touch-lcd-28"
+  | "custom";
 
 /**
  * Catalogue modules. Thicknesses marked "estimate" are guesses (the vendors publish none) and
- * should be replaced with measurements. Sources: the GC9A01 module datasheet and the Waveshare
- * wiki dimension drawings (see docs/ideas/display-dog.md).
+ * should be replaced with measurements. Sources: the GC9A01 module datasheet, the Waveshare
+ * wiki dimension drawings (see docs/ideas/display-dog.md), and for the 2.8" board its STEP
+ * model (see docs/ideas/lcd-28-board.md).
  */
 export const DISPLAYS: Record<
   Exclude<DisplayId, "custom">,
   { label: string; module: DisplayModule }
 > = {
+  "waveshare-s3-touch-lcd-28": {
+    label: "Waveshare ESP32-S3-Touch-LCD-2.8 (speakers)",
+    // Glass 50.54 x 73.06, visible area 43.8 x 58.2 with 10.43 at the USB-C end and 4.43 at
+    // the other. 10 mm deep to the standoff tips. Speaker, battery, and RTC plugs go in from
+    // the right edge; an inserted microSD card ends past the left edge.
+    module: {
+      shape: {
+        kind: "rect",
+        width: 50.54,
+        height: 73.06,
+        corner: 2,
+        viewWidth: 43.8,
+        viewHeight: 58.2,
+      },
+      outlineOffset: 3,
+      thickness: 10,
+      usb: { depth: 7.17, along: 0.06 },
+      room: { right: 6, left: 2 },
+    },
+  },
   "gc9a01-module": {
     label: '1.28" round GC9A01 module',
     // 38 x 45.5 x 4.5 board: a round panel with the pin header in a tab below it.
@@ -50,27 +87,28 @@ export const DISPLAYS: Record<
       shape: { kind: "round", diameter: 38, viewDiameter: 32.4 },
       thickness: 4.5,
       tab: { width: 20, beyond: 7.5 },
-      usb: false,
     },
   },
   "waveshare-s3-lcd-128": {
     label: "Waveshare ESP32-S3-LCD-1.28",
-    // Board R18.25; USB-C tab 18.37 wide, 5.48 past the circle. Thickness: estimate.
+    // Board R18.25; USB-C tab 18.37 wide, 5.48 past the circle. Thickness: estimate. USB-C
+    // centre 1.6 above the back.
     module: {
       shape: { kind: "round", diameter: 36.5, viewDiameter: 32.4 },
       thickness: 11,
       tab: { width: 18.37, beyond: 5.48 },
-      usb: true,
+      usb: { depth: 9.4, along: 0 },
     },
   },
   "waveshare-s3-touch-lcd-128": {
     label: "Waveshare ESP32-S3-Touch-LCD-1.28",
     // Glass Ø38.51, 40.36 tall with the FPC tab; USB-C on the same edge. Thickness: estimate.
+    // USB-C centre 1.6 above the back.
     module: {
       shape: { kind: "round", diameter: 38.51, viewDiameter: 33.4 },
       thickness: 8,
       tab: { width: 12, beyond: 1.85 },
-      usb: true,
+      usb: { depth: 6.4, along: 0 },
     },
   },
 };
@@ -92,6 +130,22 @@ export const BATTERY_ALLOWANCE = [1.5, 2, 4] as const;
 /** Rotation in the face plane (degrees, counter-clockwise seen from the front) from "top". */
 export const EDGE_ANGLE: Record<Edge, number> = { top: 0, left: 90, bottom: 180, right: -90 };
 
+/** Edges counter-clockwise from the top, a quarter turn apart. */
+const EDGES: readonly Edge[] = ["top", "left", "bottom", "right"];
+
+/** The face edge a module's `side` ends up on when its port edge is turned to `port`. */
+export function turnEdge(side: Edge, port: Edge): Edge {
+  return EDGES[(EDGES.indexOf(side) + EDGES.indexOf(port)) % 4];
+}
+
+/** A point (u, v) of the module frame on the face: (x, z) from the display centre. */
+export function toFace(port: Edge, u: number, v: number): [number, number] {
+  const a = (EDGE_ANGLE[port] * Math.PI) / 180;
+  // Quarter turns only, so round away the floating-point noise.
+  const [c, s] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
+  return [u * c - v * s, u * s + v * c];
+}
+
 /** The module selected by `display`, built from the custom fields when it is "custom". */
 export function selectedModule(values: Params): DisplayModule {
   // Select params only ever hold one of their declared options.
@@ -104,7 +158,7 @@ export function selectedModule(values: Params): DisplayModule {
       diameter: num(values, "customDiameter"),
       viewDiameter: num(values, "customViewDiameter"),
     };
-    return { shape, thickness, usb: false };
+    return { shape, thickness };
   }
   const shape = {
     kind: "rect" as const,
@@ -114,7 +168,7 @@ export function selectedModule(values: Params): DisplayModule {
     viewWidth: num(values, "customViewWidth"),
     viewHeight: num(values, "customViewHeight"),
   };
-  return { shape, thickness, usb: false };
+  return { shape, thickness };
 }
 
 /** The edge the module's tab and port face: chosen for USB boards, down for the rest. */
@@ -168,7 +222,7 @@ export function displayParams(): ParamSpec[] {
         ...Object.entries(DISPLAYS).map(([value, d]) => ({ value, label: d.label })),
         { value: "custom", label: "Custom" },
       ],
-      help: "Board thicknesses are estimates; check yours with calipers and use Custom if it differs.",
+      help: "The 1.28\" boards' thicknesses are estimates; check yours with calipers and use Custom if it differs.",
     },
     {
       kind: "select",
@@ -183,6 +237,32 @@ export function displayParams(): ParamSpec[] {
       ],
       visibleWhen: hasUsb,
       help: "Mount the board turned this way and rotate the picture in firmware.",
+    },
+    {
+      kind: "number",
+      key: "usbPlugWidth",
+      label: "USB-C plug width",
+      group: "Display",
+      unit: "mm",
+      default: 13,
+      min: 9,
+      max: 20,
+      step: 0.1,
+      visibleWhen: hasUsb,
+      help: "The moulded grip of your cable's plug, plus about 0.8 mm.",
+    },
+    {
+      kind: "number",
+      key: "usbPlugHeight",
+      label: "USB-C plug thickness",
+      group: "Display",
+      unit: "mm",
+      default: 7,
+      min: 3.5,
+      max: 15,
+      step: 0.1,
+      visibleWhen: hasUsb,
+      help: "The grip's thickness, plus about 0.8 mm.",
     },
     {
       kind: "select",
@@ -264,11 +344,23 @@ export function batteryParams(): ParamSpec[] {
   ];
 }
 
-/** A custom display needs a lip of at least 1 mm and a corner radius that fits. */
+/**
+ * The USB-C opening stays behind the glass front, so it never cuts the face. A custom display
+ * needs a lip of at least 1 mm and a corner radius that fits.
+ */
 export function validateDisplay(values: Params): ValidationIssue[] {
-  if (str(values, "display") !== "custom") return [];
   const issues: ValidationIssue[] = [];
-  const { shape } = selectedModule(values);
+  const { shape, usb } = selectedModule(values);
+  if (usb) {
+    const most = 2 * (usb.depth - 0.5);
+    if (num(values, "usbPlugHeight") > most) {
+      issues.push({
+        key: "usbPlugHeight",
+        message: `This board's USB-C port sits too close to the glass for a plug this thick; at most ${most.toFixed(1)} mm.`,
+      });
+    }
+  }
+  if (str(values, "display") !== "custom") return issues;
   const lip = (outline: number, view: number, key: string, what: string) => {
     if (view > outline - 1) {
       issues.push({

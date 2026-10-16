@@ -85,7 +85,6 @@ export type DogLayout = CharacterLayout & {
 export function dogLayout(values: Params): DogLayout {
   const head = headSize(values);
   const [rx, ry, rz] = head.radii;
-  const { shape } = head.module;
 
   // Body below and slightly behind the head, sunk into the bed so it stands on a flat cut.
   const brx = (rx * num(values, "bodySize")) / 100;
@@ -112,8 +111,7 @@ export function dogLayout(values: Params): DogLayout {
   let snoutSkipped = false;
   const snoutSize = num(values, "snout");
   if (snoutSize > 0) {
-    const viewHalf = shape.kind === "round" ? shape.viewDiameter / 2 : shape.viewHeight / 2;
-    const top = cz - viewHalf - 1;
+    const top = cz - head.view.halfZ - 1;
     const bottom = anatomyZ + 2;
     let radii: Vec3 = [1.7 * snoutSize, 0.9 * snoutSize, 0.85 * snoutSize];
     if (2 * radii[2] > top - bottom) radii = scale(radii, (top - bottom) / (2 * radii[2]));
