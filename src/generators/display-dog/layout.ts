@@ -9,6 +9,7 @@ import {
   normalize,
   roundCone,
   scale,
+  smoothUnion,
   sub,
   unionBox,
   type Box3,
@@ -21,13 +22,23 @@ import {
   blendTerms,
   characterLayout,
   headBounds,
+  headCoreFor,
   headCoreSdf,
   headSize,
+  surfaceAlong,
   termBounds,
   termRatios,
   type CharacterLayout,
   type Term,
 } from "../../characters/kit";
+import {
+  SPEAKER,
+  channelLength,
+  pocketFits,
+  speakerPocket,
+  type Pocket,
+  type SpeakerSeat,
+} from "../../characters/speakers";
 
 /**
  * Everything about the dog that follows from its params, in the character kit's frame (see
@@ -80,11 +91,13 @@ export type DogLayout = CharacterLayout & {
   paws: Blob[];
   haunches: Blob[];
   tail: Segment[];
+  /** False when the ears could not grow enough to hold the board's speakers. */
+  speakersFit: boolean;
 };
 
 export function dogLayout(values: Params): DogLayout {
   const head = headSize(values);
-  const [rx, ry, rz] = head.radii;
+  const [rx, , rz] = head.radii;
 
   // Body below and slightly behind the head, sunk into the bed so it stands on a flat cut.
   const brx = (rx * num(values, "bodySize")) / 100;
@@ -96,14 +109,35 @@ export function dogLayout(values: Params): DogLayout {
   const overlap = 0.45 * Math.min(rz, brz);
   const cz = bcz + brz + rz - overlap;
   const anatomyZ = cz - rz - 1;
+  const wall = num(values, "wall");
+  const softness = num(values, "softness");
+  const core = headCoreFor(head, cz, softness);
+  const earHead = { rx, rz, cz, neckZ: anatomyZ, core };
+
+  // With a speaker board, each ear holds a speaker: the ears grow (width and length together)
+  // until a pocket fits in each, its grille on the ear's face.
+  let ears = earLayout(values, earHead, 1);
+  let speakers: SpeakerSeat[] = [];
+  let speakersFit = true;
+  const pocket = speakerPocket(head.module);
+  if (pocket) {
+    speakersFit = false;
+    const hollow: Sdf = (p) => core(p) + wall;
+    for (let grow = 1; grow <= 3.5 && !speakersFit; grow += 0.05) {
+      const grown = earLayout(values, earHead, grow);
+      const seats = grown.map((ear) => seatInEar(ear, pocket, core, hollow, softness));
+      if (seats.every((seat) => seat !== null)) {
+        [ears, speakers, speakersFit] = [grown, seats, true];
+      }
+    }
+  }
   const base = characterLayout(values, head, {
     cz,
     anatomyZ,
     neckRadius: 0.42 * Math.min(rx, brx),
+    speakers,
   });
   const k = brx / 17; // the spike's body radius; small features scale with it
-
-  const ears = earLayout(values, { rx, ry, rz, cz, neckZ: anatomyZ });
 
   // Snout under the screen: above the neck cut and clear of the window.
   let snout: Blob | null = null;
@@ -151,32 +185,81 @@ export function dogLayout(values: Params): DogLayout {
   }
   const tail = tailLayout(str(values, "tail"), body, k, anatomyZ);
 
-  return { ...base, body, ears, snout, nose, snoutSkipped, legs, paws, haunches, tail };
+  return {
+    ...base,
+    body,
+    ears,
+    snout,
+    nose,
+    snoutSkipped,
+    legs,
+    paws,
+    haunches,
+    tail,
+    speakersFit,
+  };
 }
 
+/**
+ * A seat for a speaker in `ear`: lying in the ear's plane, grille forward (pointy and round
+ * ears, toward the face side of the split) or outward (floppy ears), the lead toward the head.
+ * Tries the centre from far out to near the base; null if the pocket fits nowhere. The ear is
+ * blended onto the head as in the outer surface.
+ */
+function seatInEar(
+  ear: Ear,
+  pocket: Pocket,
+  core: Sdf,
+  hollow: Sdf,
+  softness: number,
+): SpeakerSeat | null {
+  const shape = earSdf(ear);
+  const solid: Sdf = (p) => smoothUnion(core(p), shape(p), softness);
+  // A floppy ear hangs beside the head, so its lead goes straight in through the ear's back;
+  // an upright ear's lead runs down the ear into the head.
+  const floppy = ear.style === "floppy";
+  const normal = floppy ? ear.thin : scale(ear.thin, -1);
+  const up = ear.axis;
+  const cable = floppy ? scale(normal, -1) : scale(up, -1);
+  for (let f = 0.7; f >= 0.15; f -= 0.025) {
+    const center = add(ear.base, scale(ear.axis, ear.length * f));
+    const seat = { center, normal, up, cable };
+    if (!pocketFits({ ...seat, channel: 0 }, pocket, SPEAKER.side, solid, core)) continue;
+    const channel = channelLength(seat, pocket, solid, hollow);
+    if (channel !== null) return { ...seat, channel };
+  }
+  return null;
+}
+
+/**
+ * The ears, `grow` times their params' size. They sit on the head's real surface (ellipsoid or
+ * rounded box), found along the ellipse direction of their angle.
+ */
 function earLayout(
   values: Params,
-  head: { rx: number; ry: number; rz: number; cz: number; neckZ: number },
+  head: { rx: number; rz: number; cz: number; neckZ: number; core: Sdf },
+  grow: number,
 ): Ear[] {
   const style = str(values, "earStyle");
-  if (style === "none") return [];
-  const { rx, rz, cz, neckZ } = head;
-  const width = num(values, "earWidth");
+  const { rx, rz, cz, neckZ, core } = head;
+  const width = num(values, "earWidth") * grow;
   const half = Math.max(2.5, width * 0.225);
+  /** A point `depth` of the way from the head centre to its surface, at angle `t` from the top. */
+  const onHead = (side: number, t: number, depth: number): Vec3 => {
+    const dir = normalize([side * rx * Math.sin(t), 0, rz * Math.cos(t)]);
+    const s = surfaceAlong(core, (d) => [dir[0] * d, 0, cz + dir[2] * d], 2 * Math.max(rx, rz));
+    return [dir[0] * s * depth, 0, cz + dir[2] * s * depth];
+  };
   return [-1, 1].map((side): Ear => {
     if (style === "floppy") {
       // Hangs from the upper side of the head along its surface, widening toward the tip.
-      const t = 62 * deg;
       const axis = normalize([side * 0.3, 0, -1]);
       const thin = normalize([side, 0, 0.3]);
-      const base = add(
-        [side * rx * Math.sin(t) * 0.95, 0, cz + rz * Math.cos(t) * 0.95],
-        scale(thin, half * 0.5),
-      );
+      const base = add(onHead(side, 62 * deg, 0.95), scale(thin, half * 0.5));
       const r1 = width * 0.375;
       const r2 = width / 2;
       const reach = (base[2] - neckZ - 2 - r2) / -axis[2];
-      const length = Math.max(4, Math.min(num(values, "earLength"), reach));
+      const length = Math.max(4, Math.min(num(values, "earLength") * grow, reach));
       return {
         style,
         base,
@@ -193,19 +276,17 @@ function earLayout(
     // Ears lean outward only: they stay centred on the split plane, so each half-ear lies flat
     // on the bed and the inner-ear accent sits on the front half's upward face.
     const spread = num(values, "earSpread") * deg;
-    const t = 38 * deg;
-    const base: Vec3 = [side * rx * Math.sin(t) * 0.9, 0, cz + rz * Math.cos(t) * 0.9];
+    const base = onHead(side, 38 * deg, 0.9);
     const axis: Vec3 = [side * Math.sin(spread), 0, Math.cos(spread)];
     const up: Vec3 = [0, 1, 0];
     const thin = normalize(sub(up, scale(axis, dot(axis, up))));
     // The base sits inside the head; add that much so the visible ear is `earLength` long.
-    const length = num(values, "earLength") + 0.1 * rz;
+    const length = num(values, "earLength") * grow + 0.1 * rz;
     const r1 = width / 2;
     const r2 = style === "pointy" ? 1.2 : width / 2;
     const at = (s: number) => add(base, scale(axis, length * s));
     // Keep the accent outline clear of the head's silhouette, so it only covers ear.
-    const outside = (x: number, z: number, r: number) =>
-      Math.hypot(x / (rx + r + 1), (z - cz) / (rz + r + 1)) >= 1;
+    const outside = (x: number, z: number, r: number) => core([x, 0, z]) >= r + 1;
     let accent: Ear["accent"];
     if (style === "pointy") {
       const radiusAt = (s: number) => (r1 + (r2 - r1) * s) * 0.55;

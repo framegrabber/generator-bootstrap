@@ -6,6 +6,7 @@ import {
 } from "../../characters/hardware";
 import { cutParams, headParams, printParams, validateCharacter } from "../../characters/kit";
 import type { GeneratorDef, Params } from "../../core/types";
+import { bool } from "../../core/params";
 import { robotLayout } from "./layout";
 
 const hasAccents = (v: Params) => v.accentMode !== "none";
@@ -119,6 +120,14 @@ const displayRobot: GeneratorDef = {
       issues.push({
         key: "usbEdge",
         message: "USB-C on top would cut through the antenna; turn the board left or right.",
+      });
+    }
+    if (!L.speakersFit) {
+      issues.push({
+        key: "earPods",
+        message: bool(values, "earPods")
+          ? "The ear pods cannot hold the board's speakers; increase the face margin."
+          : "This board's speakers go in the ear pods; turn them on.",
       });
     }
     return issues;

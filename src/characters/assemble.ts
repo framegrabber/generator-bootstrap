@@ -12,9 +12,10 @@ import {
 import type { WasmScope } from "../core/manifold";
 import { meshFromManifold, withScope } from "../core/manifold";
 import type { Vec3 } from "../core/bounds";
-import { cross, dot, normalize, scale, sub, type Box3, type Sdf } from "../core/sdf";
+import { add, cross, dot, normalize, scale, sub, type Box3, type Sdf } from "../core/sdf";
 import type { CutPlane, GeneratorResult, ManifoldLib, Part } from "../core/types";
 import { EDGE_ANGLE } from "./hardware";
+import { SPEAKER, grillePoints, seatAcross } from "./speakers";
 import {
   BOSS,
   DOWEL,
@@ -257,6 +258,40 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
       openings.push(
         k.cylinderAlong(PIN_HOLE / 2, sub(hole.from, scale(hole.dir, 0.5)), hole.dir, reach),
       );
+    }
+    // Speaker pockets, each with a grille through the wall in front and a channel that takes
+    // its lead (and the plug) into the hollow head.
+    if (L.pocket) {
+      const { half } = L.pocket;
+      const slab = t(
+        t(k.roundedRect(2 * half[0], 2 * half[1], SPEAKER.corner).extrude(2 * half[2])).translate([
+          0,
+          0,
+          -half[2],
+        ]),
+      );
+      const lane = t(k.roundedRect(SPEAKER.channel[0], SPEAKER.channel[1], 1).extrude(1));
+      const grille = grillePoints(L.pocket);
+      for (const seat of L.speakers) {
+        const across = seatAcross(seat);
+        openings.push(t(slab.transform(frameAlong(seat.center, seat.normal, across))));
+        for (const [a, b] of grille) {
+          const onFace = add(
+            scale(across, a),
+            add(scale(seat.up, b), scale(seat.normal, half[2] - 0.5)),
+          );
+          openings.push(
+            k.cylinderAlong(SPEAKER.hole / 2, add(seat.center, onFace), seat.normal, 15),
+          );
+        }
+        openings.push(
+          t(
+            t(lane.scale([1, 1, seat.channel])).transform(
+              frameAlong(seat.center, seat.cable, across),
+            ),
+          ),
+        );
+      }
     }
     // Posts in the back half, flush with its split face, press the spacer onto the board's
     // standoffs when the head closes. Clipped to the outer surface, they fuse with the wall.
@@ -555,6 +590,11 @@ function assemblyNotes(spec: CharacterSpec): string {
       L.spacer
         ? "Set the spacer on the board's back, its four sockets over the standoffs. Lay the battery flat inside its frame, if you use one."
         : "Lay the battery flat behind the display, if you use one.",
+      ...(L.speakers.length > 0
+        ? [
+            `Lay each speaker in its pocket in ${front}, grille side toward the holes, and run its lead through the channel into the head; the 4-pin plug goes through one channel and into the board's Speaker socket.`,
+          ]
+        : []),
       `Push a ${2 * DOWEL.depth - 0.5} mm piece of ${DOWEL.diameter} mm filament into each hole on the split face of ${back}, then press ${front} on.${L.spacer ? ` The posts inside ${back} press the spacer, so the board cannot be pushed in.` : ""}`,
     );
   }

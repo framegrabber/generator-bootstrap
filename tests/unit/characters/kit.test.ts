@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SPACER, headSize } from "../../../src/characters/kit";
 import { boundsOf } from "../../../src/core/bounds";
 import { dogLayout } from "../../../src/generators/display-dog/layout";
+import { robotLayout } from "../../../src/generators/display-robot/layout";
 import { validateParams } from "../../../src/core/params";
 import { findGenerator } from "../../../src/generators";
 import { buildWith, paramsFor } from "../generators/helpers";
@@ -72,15 +73,17 @@ describe("pin holes", () => {
 });
 
 describe("board spacer", () => {
-  const def = findGenerator(ID)!;
-  // A shallow head brings the board's standoff tips within the split's range.
-  const shallow = { display: BOARD, headDepth: 60 };
-
   it("keeps the head split far enough behind the standoffs for the spacer's frame", () => {
-    const L = dogLayout(paramsFor(ID, shallow));
+    // The robot's pods allow the split to move most, and with USB-C on top they stay on it; a
+    // shallow head brings the board's standoff tips within the split's range.
+    const robot = "display-robot";
+    const shallow = { display: BOARD, usbEdge: "top", antenna: "none", headDepth: 50 };
+    const L = robotLayout(paramsFor(robot, shallow));
     const limit = L.spacer!.front + SPACER.thickness + SPACER.gap;
     const keys = (headSplitOffset: number) =>
-      validateParams(def, paramsFor(ID, { ...shallow, headSplitOffset })).map((i) => i.key);
+      validateParams(findGenerator(robot)!, paramsFor(robot, { ...shallow, headSplitOffset })).map(
+        (i) => i.key,
+      );
     expect(keys(Math.ceil(limit * 2) / 2)).toEqual([]);
     expect(keys(Math.floor(limit * 2) / 2)).toContain("headSplitOffset");
   });

@@ -31,12 +31,15 @@ const build: GeneratorBuild = (values, { wasm }) => {
         const tool = t(blob.trimByPlane([0, -1, 0], -flatAt));
         accents.push({ name: "nose", solid: t(outer.intersect(tool)), flatAt });
       }
-      // Inner ears: the front of each ear inside its outline, in front of the head split.
+      // Inner ears: the front of each ear inside its outline, in front of the head split. With
+      // a speaker in the ear, the accent is the grille wall in front of its pocket.
       const splitY = L.split.cut ? L.split.y : 0;
-      const earBack = Math.min(0, splitY) - EAR_ACCENT_FLOOR;
       const [, ry] = L.head.radii;
-      for (const ear of L.ears) {
-        if (!ear.accent) continue;
+      L.ears.forEach((ear, i) => {
+        if (!ear.accent) return;
+        const seat = L.speakers[i];
+        const pocketFront = seat && L.pocket ? seat.center[1] - L.pocket.half[2] : Infinity;
+        const earBack = Math.min(Math.min(0, splitY) - EAR_ACCENT_FLOOR, pocketFront);
         const outline =
           ear.accent.kind === "hull"
             ? t(
@@ -52,7 +55,7 @@ const build: GeneratorBuild = (values, { wasm }) => {
         const prism = k.prismY(outline, -ry - 20, earBack, 0);
         const name = ear.base[0] < 0 ? "inner-ear-left" : "inner-ear-right";
         accents.push({ name, solid: t(outer.intersect(prism)), flatAt: earBack });
-      }
+      });
       return accents;
     },
   });

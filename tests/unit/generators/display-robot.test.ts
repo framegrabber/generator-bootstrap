@@ -19,6 +19,18 @@ describe("display-robot validate", () => {
     expect(issueKeys({ usbEdge: "top", antenna: "none" })).toEqual([]);
     expect(issueKeys({ usbEdge: "right" })).toEqual([]);
   });
+
+  it("needs the ear pods on a board with speakers, which they hold", () => {
+    expect(issueKeys({ earPods: false })).toContain("earPods");
+    expect(issueKeys({ earPods: false, display: "waveshare-s3-touch-lcd-128" })).toEqual([]);
+    const L = robotLayout(paramsFor(ID));
+    // Each pod holds a speaker standing across the head split (20 mm of it along y), grille
+    // outward; the pods move back only as far as the USB-C opening in front needs.
+    expect(L.speakers.map((s) => s.normal[0])).toEqual([-1, 1]);
+    for (const seat of L.speakers) {
+      expect(Math.abs(seat.center[1] - L.split.y)).toBeLessThan(L.pocket!.half[0] - 1);
+    }
+  });
 });
 
 describe("display-robot layout", () => {
@@ -44,7 +56,13 @@ describe("display-robot build", { timeout: 60_000 }, () => {
     ["sprout antenna", { antenna: "sprout" }],
     [
       "no pods, antenna, arms, or legs",
-      { earPods: false, antenna: "none", arms: false, legs: false },
+      {
+        display: "waveshare-s3-touch-lcd-128",
+        earPods: false,
+        antenna: "none",
+        arms: false,
+        legs: false,
+      },
     ],
     ["bare module with a cable hole", { display: "gc9a01-module" }],
     ["rectangular custom display", { display: "custom", customShape: "rect" }],
@@ -61,14 +79,13 @@ describe("display-robot build", { timeout: 60_000 }, () => {
   });
 
   it("cuts accents with the pieces and fills their recesses exactly", async () => {
-    // The 1.28" board puts the pods across the split.
-    const small = { display: "waveshare-s3-touch-lcd-128" };
-    const plain = await buildWith(ID, draft({ ...small, accentMode: "none" }));
-    const accented = await buildWith(ID, draft({ ...small, accentMode: "inplace" }));
+    const plain = await buildWith(ID, draft({ accentMode: "none" }));
+    const accented = await buildWith(ID, draft({ accentMode: "inplace" }));
     expect(accented.parts.map((p) => [p.name, p.assembly])).toEqual([
       ["head-front", "face"],
       ["head-back", "rear"],
       ["body", "torso"],
+      ["spacer", undefined],
       ["antenna-ball-front", "face"],
       ["antenna-ball-back", "rear"],
       ["ear-pods-front", "face"],
@@ -77,7 +94,7 @@ describe("display-robot build", { timeout: 60_000 }, () => {
       ["whole", undefined],
     ]);
     // Pieces plus accents equal the plain pieces: no gap, no overlap, and no accent filling
-    // the window or the USB-C opening through the ear pod.
+    // the window, the USB-C opening, or the speaker grilles in the ear pods.
     const total = (parts: Part[]) =>
       parts.filter((p) => p.name !== "whole").reduce((s, p) => s + signedVolume(p.mesh), 0);
     expect(Math.abs(total(accented.parts) - total(plain.parts))).toBeLessThan(1);

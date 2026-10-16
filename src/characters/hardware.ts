@@ -56,6 +56,12 @@ export type DisplayModule = {
    * front. A printed spacer sits on them so the closed head holds the board.
    */
   standoffs?: { at: readonly (readonly [number, number])[]; radius: number };
+  /**
+   * Two speakers on leads, placed by the character (ears, pods): box size (across, long side,
+   * thick) and the grille area on their front face (across, long side). The leads leave at one
+   * end of the long side.
+   */
+  speakers?: { size: readonly [number, number, number]; grille: readonly [number, number] };
 };
 
 export type DisplayId =
@@ -107,6 +113,8 @@ export const DISPLAYS: Record<
         ],
         radius: 2.75,
       },
+      // Two 20 x 30 x 5.5 boxed speakers on 150 mm leads to one 4-pin PH1.25 plug.
+      speakers: { size: [20, 30, 5.5], grille: [13.4, 16.6] },
     },
   },
   "gc9a01-module": {

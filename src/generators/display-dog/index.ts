@@ -55,8 +55,8 @@ const displayDog: GeneratorDef = {
         { value: "pointy", label: "Pointy" },
         { value: "round", label: "Round" },
         { value: "floppy", label: "Floppy" },
-        { value: "none", label: "None" },
       ],
+      help: "With a speaker board, the ears grow to hold the speakers.",
     },
     {
       kind: "number",
@@ -68,7 +68,7 @@ const displayDog: GeneratorDef = {
       min: 8,
       max: 30,
       step: 0.5,
-      visibleWhen: (v) => v.earStyle !== "none",
+      help: "The least it will be; ears holding speakers grow longer.",
     },
     {
       kind: "number",
@@ -80,7 +80,7 @@ const displayDog: GeneratorDef = {
       min: 8,
       max: 24,
       step: 0.5,
-      visibleWhen: (v) => v.earStyle !== "none",
+      help: "The least it will be; ears holding speakers grow wider.",
     },
     {
       kind: "number",
@@ -138,12 +138,24 @@ const displayDog: GeneratorDef = {
       accentColor: "#4a3428",
     }),
   ],
-  migrate: migrateDisplay,
+  migrate(raw) {
+    // "No ears" went when the ears started holding the speakers.
+    const values = migrateDisplay(raw);
+    return values.earStyle === "none" ? { ...values, earStyle: "pointy" } : values;
+  },
   validate(values) {
     const display = validateDisplay(values);
     if (display.length > 0) return display;
     const L = dogLayout(values);
-    return validateCharacter(values, L, L.body.center[2]);
+    const issues = validateCharacter(values, L, L.body.center[2]);
+    if (!L.speakersFit) {
+      issues.push({
+        key: "earStyle",
+        message:
+          "The ears cannot hold the board's speakers even grown three and a half times; try round or floppy ears, or a larger face margin.",
+      });
+    }
+    return issues;
   },
 };
 

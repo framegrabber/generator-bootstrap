@@ -11,6 +11,9 @@ import {
 import { boundsOf } from "../../../src/core/bounds";
 import { applyPoint, transformBounds } from "../../../src/core/mat4";
 import { buildWith, paramsFor, signedVolume } from "./helpers";
+import { BOSS } from "../../../src/characters/kit";
+import { pocketDistance } from "../../../src/characters/speakers";
+import { querySnapshot, restoreSnapshot } from "../../../src/state/snapshot";
 
 const ID = "display-dog";
 const def = findGenerator(ID)!;
@@ -69,6 +72,40 @@ describe("display-dog validate", () => {
   });
 });
 
+describe("display-dog speakers", () => {
+  it.each(["pointy", "round", "floppy"])(
+    "%s ears hold the speakers clear of the dowels",
+    (earStyle) => {
+      for (const usbEdge of ["right", "left", "top"]) {
+        const L = dogLayout(paramsFor(ID, { earStyle, usbEdge }));
+        expect(L.speakersFit).toBe(true);
+        expect(L.speakers).toHaveLength(2);
+        for (const seat of L.speakers) {
+          for (const [x, z] of L.bosses) {
+            const d = pocketDistance(seat, L.pocket!, [x, L.split.y, z]);
+            expect(d).toBeGreaterThanOrEqual(BOSS.radius + 1 + L.wall);
+          }
+        }
+      }
+    },
+  );
+
+  it("keeps the head split through the ear pockets", () => {
+    const L = dogLayout(paramsFor(ID));
+    // Pointy ears hold the speaker flat across the split: it reaches 3.05 mm either side.
+    const hi = L.speakers[0].center[1] + L.pocket!.half[2] - 1;
+    expect(issueKeys({ headSplitOffset: Math.floor(hi * 2) / 2 })).toEqual([]);
+    expect(issueKeys({ headSplitOffset: Math.floor(hi * 2) / 2 + 0.5 })).toContain(
+      "headSplitOffset",
+    );
+  });
+
+  it("reads old links with no ears as pointy ears", () => {
+    const restored = restoreSnapshot(querySnapshot("?g=display-dog&earStyle=none"));
+    expect(restored.values.earStyle).toBe("pointy");
+  });
+});
+
 describe("display-dog layout", () => {
   it("culls only shapes that cannot change the surface", () => {
     // outerSdf skips a shape when CULL_FACTOR x its box distance proves it too far away to
@@ -104,7 +141,11 @@ describe("display-dog build", { timeout: 60_000 }, () => {
       "round ears on the bare module",
       { earStyle: "round", display: "gc9a01-module", tail: "stub" },
     ],
-    ["no ears, no snout, no legs", { earStyle: "none", snout: 0, frontLegs: false, tail: "none" }],
+    [
+      "round ears, no snout, no legs",
+      { earStyle: "round", snout: 0, frontLegs: false, tail: "none" },
+    ],
+    ["pointy ears, glued accents", { earStyle: "pointy", accentMode: "glue" }],
     [
       "rectangular custom display, wide ears",
       { display: "custom", customShape: "rect", earSpread: 45 },

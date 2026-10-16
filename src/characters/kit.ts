@@ -24,6 +24,13 @@ import {
   type DisplayModule,
   type Edge,
 } from "./hardware";
+import {
+  pocketDistance,
+  seatAcross,
+  speakerPocket,
+  type Pocket,
+  type SpeakerSeat,
+} from "./speakers";
 
 /**
  * What every display character shares: a hollow ellipsoid head with a flat face for the
@@ -141,6 +148,9 @@ export type CharacterLayout = Omit<HeadSize, "radii" | "corner"> & {
    * standoffs or a head split.
    */
   spacer: Spacer | null;
+  /** Seats for the board's speakers, chosen by the character, and their pocket; none without. */
+  speakers: SpeakerSeat[];
+  pocket: Pocket | null;
 };
 
 export type Spacer = { posts: (readonly [number, number])[]; front: number; back: number };
@@ -224,21 +234,25 @@ export function headSize(values: Params): HeadSize {
   };
 }
 
+/** The head core (`headCoreSdf`) before the layout exists, for characters placing features. */
+export function headCoreFor(head: HeadSize, cz: number, softness: number): Sdf {
+  return headCoreSdf({ head: { radii: head.radii, corner: head.corner }, ...head, cz, softness });
+}
+
+/** Depth of the USB-C plug's centre, or null for a module without USB-C. */
+export function usbPlugY(head: HeadSize, wall: number): number | null {
+  return head.module.usb ? head.faceY + wall + head.module.usb.depth : null;
+}
+
 /**
  * Completes a character's shared layout once it has placed its head at height `cz`.
- * `anatomyZ` is the default neck cut height; `neckRadius` sizes the peg. `keepOut` is the
- * signed distance, in the split plane (x, z), to the character's own features the dowel bosses
- * must stay clear of (speaker pockets).
+ * `anatomyZ` is the default neck cut height; `neckRadius` sizes the peg. `speakers` are the
+ * seats the character chose for the board's speakers; the dowel bosses stay clear of them.
  */
 export function characterLayout(
   values: Params,
   head: HeadSize,
-  where: {
-    cz: number;
-    anatomyZ: number;
-    neckRadius: number;
-    keepOut?: (x: number, z: number) => number;
-  },
+  where: { cz: number; anatomyZ: number; neckRadius: number; speakers?: SpeakerSeat[] },
 ): CharacterLayout {
   const { radii, corner, ...face } = head;
   const [rx, , rz] = radii;
@@ -282,10 +296,14 @@ export function characterLayout(
     softness,
   });
   const reach = Math.hypot(rx, rz) + 5;
+  const pocket = speakerPocket(face.module);
+  const speakers = pocket ? (where.speakers ?? []) : [];
   const clearance = (x: number, z: number) =>
     Math.min(
       spacer ? spacerDistance(spacer, x, z) : Infinity,
-      where.keepOut ? where.keepOut(x, z) : Infinity,
+      ...speakers.map((seat) =>
+        pocket ? pocketDistance(seat, pocket, [x, split.y, z]) - wall : Infinity,
+      ),
     );
   const bossAt = (side: number, angle: number) => {
     const dir: Vec3 = [side * Math.sin(angle * deg), 0, Math.cos(angle * deg)];
@@ -335,6 +353,8 @@ export function characterLayout(
     split,
     bosses,
     port,
+    speakers,
+    pocket,
     pinHoles,
     buttonEdge,
     spacer,
@@ -553,6 +573,26 @@ export function validateCharacter(
       message:
         "The board's spacer does not fit inside the head at the split. Increase the face margin or move the head split forward.",
     });
+  }
+  // Each speaker drops into the pocket half of one head half and is clamped by the other, so
+  // the split must pass through every pocket.
+  const pocket = L.pocket;
+  if (L.split.cut && pocket) {
+    for (const seat of L.speakers) {
+      const across = seatAcross(seat);
+      const reach =
+        Math.abs(across[1]) * pocket.half[0] +
+        Math.abs(seat.up[1]) * pocket.half[1] +
+        Math.abs(seat.normal[1]) * pocket.half[2];
+      if (Math.abs(seat.center[1] - L.split.y) > reach - 1) {
+        const [lo, hi] = [seat.center[1] - reach + 1, seat.center[1] + reach - 1];
+        issues.push({
+          key: "headSplitOffset",
+          message: `The head split must pass through the speaker pockets so each half holds half a speaker; keep it between ${lo.toFixed(1)} and ${hi.toFixed(1)} mm.`,
+        });
+        break;
+      }
+    }
   }
   if (L.neck.cut) {
     // The hollow's floor runs wall + 2 above the cut, parallel to it; under the display it

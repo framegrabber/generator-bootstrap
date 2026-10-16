@@ -1,5 +1,6 @@
 import { bool, num, str } from "../../core/params";
 import {
+  smoothUnion,
   boxAround,
   capsule,
   ellipsoid,
@@ -16,13 +17,22 @@ import {
   blendTerms,
   characterLayout,
   headBounds,
+  headCoreFor,
   headCoreSdf,
   headSize,
   termBounds,
   termRatios,
+  usbPlugY,
   type CharacterLayout,
   type Term,
 } from "../../characters/kit";
+import {
+  SPEAKER,
+  channelLength,
+  pocketFits,
+  speakerPocket,
+  type SpeakerSeat,
+} from "../../characters/speakers";
 
 /**
  * The robot in the character kit's frame (see src/characters/kit.ts): helmet head, face, cuts,
@@ -56,6 +66,8 @@ export type RobotLayout = CharacterLayout & {
   feet: Brick[];
   /** Chest badge: a disc on the torso front, centre and radius. */
   badge: { center: Vec3; radius: number };
+  /** False when the board has speakers and the pods are off or cannot hold them. */
+  speakersFit: boolean;
 };
 
 export function robotLayout(values: Params): RobotLayout {
@@ -72,25 +84,72 @@ export function robotLayout(values: Params): RobotLayout {
   // The head sits on the torso, just overlapping it.
   const cz = torsoTop + rz - 0.15 * rz;
   const anatomyZ = cz - rz - 1;
+  const wall = num(values, "wall");
+  const softness = num(values, "softness");
+
+  // Headphone ear pods on the sides, across the split plane. With a speaker board, each pod
+  // holds a speaker, grille outward, and grows until it fits; the pods stay on the split and
+  // move back only as far as the USB-C opening in front of them needs. Without speakers and
+  // with USB-C on a side, the pods sit at the port's depth, so the cable comes out through the
+  // middle of the ear.
+  const sideUsb = head.edge === "left" || head.edge === "right";
+  const plugY = usbPlugY(head, wall);
+  const pocket = speakerPocket(head.module);
+  const core = headCoreFor(head, cz, softness);
+  const hollow: Sdf = (p) => core(p) + wall;
+  const podAt = (radius: number): Pod[] => {
+    let y = 0;
+    if (plugY !== null && sideUsb) {
+      y = pocket ? Math.max(0, plugY + num(values, "usbPlugHeight") / 2 + 1 + radius) : plugY;
+    }
+    return [-1, 1].map((s) => ({
+      center: [s * (rx - 1), y, cz],
+      radius,
+      half: 0.22 * radius,
+      edge: 0.11 * radius,
+    }));
+  };
+  const seatIn = (pod: Pod): SpeakerSeat | null => {
+    if (!pocket) return null;
+    const s = Math.sign(pod.center[0]);
+    const face = Math.abs(pod.center[0]) + pod.half;
+    const normal: Vec3 = [s, 0, 0];
+    const seat = {
+      center: [s * (face - SPEAKER.front - pocket.half[2]), pod.center[1], cz] as Vec3,
+      normal,
+      up: [0, 0, 1] as Vec3,
+      cable: [-s, 0, 0] as Vec3,
+    };
+    const solid: Sdf = (p) =>
+      smoothUnion(
+        core(p),
+        roundCylinder(p, pod.center, 0, pod.radius, pod.half, pod.edge),
+        0.5 * softness,
+      );
+    if (!pocketFits({ ...seat, channel: 0 }, pocket, SPEAKER.side, solid, core)) return null;
+    const channel = channelLength(seat, pocket, solid, hollow);
+    return channel === null ? null : { ...seat, channel };
+  };
+  let pods: Pod[] = [];
+  let speakers: SpeakerSeat[] = [];
+  let speakersFit = !pocket;
+  if (bool(values, "earPods")) {
+    pods = podAt(0.4 * rz);
+    if (pocket) {
+      for (let radius = 0.4 * rz; radius <= 1.2 * rz && !speakersFit; radius += 0.5) {
+        const grown = podAt(radius);
+        const seats = grown.map(seatIn);
+        if (seats.every((seat) => seat !== null))
+          [pods, speakers, speakersFit] = [grown, seats, true];
+      }
+    }
+  }
   const base = characterLayout(values, head, {
     cz,
     anatomyZ,
     neckRadius: 0.4 * Math.min(rx, bx),
+    speakers,
   });
-
-  // Headphone ear pods on the sides, across the split plane. With USB-C on a side, the pods
-  // sit at the port's depth, so the cable comes out through the middle of the ear.
-  const sideUsb = base.edge === "left" || base.edge === "right";
-  const podY = base.port.kind === "usb" && sideUsb ? base.port.y : 0;
-  const podRadius = 0.4 * rz;
-  const pods: Pod[] = bool(values, "earPods")
-    ? [-1, 1].map((s) => ({
-        center: [s * (rx - 1), podY, cz],
-        radius: podRadius,
-        half: 0.22 * podRadius,
-        edge: 0.11 * podRadius,
-      }))
-    : [];
 
   // Antenna on top, upright in the split plane, so each half prints lying flat.
   const style = str(values, "antenna");
@@ -141,7 +200,20 @@ export function robotLayout(values: Params): RobotLayout {
   }
 
   const badge = { center: [0, front, torso.center[2] + 0.2 * half[2]] as Vec3, radius: 0.3 * bx };
-  return { ...base, torso, pods, stalk, ball, leaves, arms, hands, legs, feet, badge };
+  return {
+    ...base,
+    torso,
+    pods,
+    stalk,
+    ball,
+    leaves,
+    arms,
+    hands,
+    legs,
+    feet,
+    badge,
+    speakersFit,
+  };
 }
 
 /** Distance to a leaf: an ellipsoid turned about y around its centre. */
