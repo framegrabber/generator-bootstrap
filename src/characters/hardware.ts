@@ -41,6 +41,16 @@ export type DisplayModule = {
   usb?: { depth: number; along: number };
   /** Free space the hollow must leave past the outline, per edge: cable plugs, a memory card. */
   room?: Partial<Record<Edge, number>>;
+  /**
+   * Side-push buttons: the actuator's tip at (u, v), its depth behind the glass front, and the
+   * edge it is pushed from. Each gets a pin hole through the shell.
+   */
+  buttons?: readonly {
+    name: string;
+    at: readonly [number, number];
+    depth: number;
+    edge: Edge;
+  }[];
 };
 
 export type DisplayId =
@@ -78,6 +88,11 @@ export const DISPLAYS: Record<
       thickness: 10,
       usb: { depth: 7.17, along: 0.06 },
       room: { right: 6, left: 2 },
+      buttons: [
+        { name: "BAT_PWR", at: [-24.78, -3.63], depth: 6.7, edge: "left" },
+        { name: "RESET", at: [-24.78, -11.45], depth: 6.7, edge: "left" },
+        { name: "BOOT", at: [-24.78, -19.27], depth: 6.7, edge: "left" },
+      ],
     },
   },
   "gc9a01-module": {
@@ -129,6 +144,14 @@ export const BATTERY_ALLOWANCE = [1.5, 2, 4] as const;
 
 /** Rotation in the face plane (degrees, counter-clockwise seen from the front) from "top". */
 export const EDGE_ANGLE: Record<Edge, number> = { top: 0, left: 90, bottom: 180, right: -90 };
+
+/** Unit vector (u, v) pointing out of each edge. */
+export const EDGE_VECTOR: Record<Edge, readonly [number, number]> = {
+  top: [0, 1],
+  left: [-1, 0],
+  bottom: [0, -1],
+  right: [1, 0],
+};
 
 /** Edges counter-clockwise from the top, a quarter turn apart. */
 const EDGES: readonly Edge[] = ["top", "left", "bottom", "right"];

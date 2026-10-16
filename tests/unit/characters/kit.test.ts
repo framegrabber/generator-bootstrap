@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { headSize } from "../../../src/characters/kit";
+import { dogLayout } from "../../../src/generators/display-dog/layout";
 import { validateParams } from "../../../src/core/params";
 import { findGenerator } from "../../../src/generators";
 import { paramsFor } from "../generators/helpers";
@@ -43,4 +44,28 @@ describe('headSize with the 2.8" board', () => {
     expect(keys(13.3)).toEqual([]);
     expect(keys(13.4)).toContain("usbPlugHeight");
   });
+});
+
+describe("pin holes", () => {
+  // BAT_PWR, RESET, BOOT sit 3.63, 11.45, and 19.27 mm from the visible area's centre toward
+  // the end away from USB-C, on the long edge counter-clockwise from the port.
+  it.each([
+    ["right", [0, 0, 1], (s: number) => [-s, 24.78]],
+    ["left", [0, 0, -1], (s: number) => [s, -24.78]],
+    ["top", [-1, 0, 0], (s: number) => [-24.78, -s]],
+  ] as const)(
+    "start at the actuators and point out of the board's edge (USB-C %s)",
+    (usbEdge, dir, at) => {
+      const L = dogLayout(paramsFor(ID, { display: BOARD, usbEdge }));
+      expect(L.pinHoles.map((h) => h.name)).toEqual(["BAT_PWR", "RESET", "BOOT"]);
+      [3.63, 11.45, 19.27].forEach((s, i) => {
+        const { from, dir: d } = L.pinHoles[i];
+        const [x, z] = at(s);
+        expect(from[0]).toBeCloseTo(x, 5);
+        expect(from[2] - L.cz).toBeCloseTo(z, 5);
+        expect(from[1]).toBeCloseTo(L.faceY + L.wall + 6.7, 5);
+        d.forEach((v, k) => expect(v).toBeCloseTo(dir[k], 5));
+      });
+    },
+  );
 });

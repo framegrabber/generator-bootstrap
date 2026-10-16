@@ -12,12 +12,13 @@ import {
 import type { WasmScope } from "../core/manifold";
 import { meshFromManifold, withScope } from "../core/manifold";
 import type { Vec3 } from "../core/bounds";
-import type { Box3, Sdf } from "../core/sdf";
+import { cross, dot, normalize, scale, sub, type Box3, type Sdf } from "../core/sdf";
 import type { CutPlane, GeneratorResult, ManifoldLib, Part } from "../core/types";
 import { EDGE_ANGLE } from "./hardware";
 import {
   BOSS,
   DOWEL,
+  PIN_HOLE,
   POCKET_CLEARANCE,
   POCKET_RIM,
   headBounds,
@@ -56,6 +57,13 @@ export type Tools = {
   cylinderY: (radius: number, yFront: number, yBack: number, x: number, z: number) => Manifold;
   /** Cylinder along x at (y, z). */
   cylinderX: (radius: number, x0: number, x1: number, y: number, z: number) => Manifold;
+  /** Cylinder of `length` from `from` along the unit vector `dir`. */
+  cylinderAlong: (
+    radius: number,
+    from: Readonly<Vec3>,
+    dir: Readonly<Vec3>,
+    length: number,
+  ) => Manifold;
   roundedRect: (w: number, h: number, r: number) => CrossSection;
 };
 
@@ -80,11 +88,20 @@ export function tools(wasm: ManifoldLib, scope: WasmScope): Tools {
       ),
     cylinderX: (radius, x0, x1, y, z) =>
       t(t(t(M.cylinder(x1 - x0, radius, radius, 48)).rotate([0, 90, 0])).translate([x0, y, z])),
+    cylinderAlong: (radius, from, dir, length) =>
+      t(t(M.cylinder(length, radius, radius, 24)).transform(frameAlong(from, dir))),
     roundedRect: (w, h, r) =>
       r > 0
         ? t(t(CS.square([w - 2 * r, h - 2 * r], true)).offset(r, "Round", 2, 32))
         : t(CS.square([w, h], true)),
   };
+}
+
+/** A frame at `origin` whose z axis is the unit vector `z`; x is `x` made perpendicular, or any. */
+export function frameAlong(origin: Readonly<Vec3>, z: Readonly<Vec3>, x?: Readonly<Vec3>): Mat4 {
+  const hint: Readonly<Vec3> = x ?? (Math.abs(z[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]);
+  const xAxis = normalize(sub(hint, scale(z, dot(hint, z))));
+  return frame(origin, xAxis, cross(z, xAxis), z);
 }
 
 /**
@@ -232,6 +249,13 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
       openings.push(t(t(grip.extrude(to - from)).transform(place)));
     } else {
       openings.push(k.cylinderY(L.port.radius, 0, ry + 10, 0, L.port.z));
+    }
+    // Pin holes from each button's actuator straight out through the shell.
+    const reach = Math.max(...L.head.radii) * 2;
+    for (const hole of L.pinHoles) {
+      openings.push(
+        k.cylinderAlong(PIN_HOLE / 2, sub(hole.from, scale(hole.dir, 0.5)), hole.dir, reach),
+      );
     }
     const whole = t(
       t(M.union([t(outer.subtract(inner)), rimBlock])).subtract(t(M.union(openings))),
@@ -502,6 +526,13 @@ function assemblyNotes(spec: CharacterSpec): string {
   }
   if (accentMode === "glue") steps.push(`Glue ${accentNote} onto their flat spots.`);
   lines.push("", "Assembly:", ...steps.map((s, i) => `${i + 1}. ${s}`));
+  if (L.buttonEdge) {
+    const names = L.pinHoles.map((h) => h.name).join(", ");
+    lines.push(
+      "",
+      `Buttons: the pin holes on the ${L.buttonEdge} of the head reach the board's ${names} buttons (in that order, nearest the screen's middle first); press them with a straightened paperclip.`,
+    );
+  }
   if (L.neck.cut) {
     lines.push(
       "",

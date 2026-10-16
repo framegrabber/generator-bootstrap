@@ -15,9 +15,11 @@ import type { ParamSpec, Params, ValidationIssue } from "../core/types";
 import {
   BATTERY_ALLOWANCE,
   EDGE_ANGLE,
+  EDGE_VECTOR,
   selectedBattery,
   selectedEdge,
   selectedModule,
+  toFace,
   turnEdge,
   type DisplayModule,
   type Edge,
@@ -41,6 +43,8 @@ export const POCKET_RIM = 4;
 export const DOWEL = { diameter: 1.75, depth: 3 };
 /** Bosses inside the head that carry the dowel holes: radius and half-length across the split. */
 export const BOSS = { radius: 3.2, half: 4 };
+/** Pin holes to the board's side buttons, for a paperclip. */
+export const PIN_HOLE = 1.6;
 const MESH_EDGE: Record<string, number> = { draft: 1.4, normal: 1, fine: 0.6 };
 const deg = Math.PI / 180;
 
@@ -114,6 +118,10 @@ export type CharacterLayout = Omit<HeadSize, "radii" | "corner"> & {
   bosses: (readonly [number, number])[];
   /** Cable or USB opening. */
   port: Port;
+  /** Pin holes to the board's buttons: where each starts (at the actuator) and its direction. */
+  pinHoles: { name: string; from: Vec3; dir: Vec3 }[];
+  /** The face edge the buttons are on, for the assembly notes; null without buttons. */
+  buttonEdge: Edge | null;
 };
 
 /** Head and face sized around the selected display (params faceMargin, headDepth, wall). */
@@ -237,6 +245,14 @@ export function characterLayout(
       }
     : { kind: "cable", z: cz - 0.45 * rz, radius: 3 };
 
+  const buttons = face.module.buttons ?? [];
+  const pinHoles = buttons.map(({ name, at, depth, edge }) => {
+    const [x, z] = toFace(face.edge, at[0], at[1]);
+    const outward = EDGE_VECTOR[edge];
+    const [dx, dz] = toFace(face.edge, outward[0], outward[1]);
+    return { name, from: [x, face.faceY + wall + depth, cz + z] as Vec3, dir: [dx, 0, dz] as Vec3 };
+  });
+  const buttonEdge = buttons.length > 0 ? turnEdge(buttons[0].edge, face.edge) : null;
   return {
     ...face,
     meshEdge: MESH_EDGE[str(values, "detail")],
@@ -249,6 +265,8 @@ export function characterLayout(
     split,
     bosses,
     port,
+    pinHoles,
+    buttonEdge,
   };
 }
 
