@@ -26,7 +26,8 @@ test("build the default dog and download a zip with every part", async ({ page }
     .filter((f) => !f.dir)
     .map((f) => f.name)
     .sort();
-  // Floppy ears have no inner-ear accent; the nose prints in place on the head front.
+  // Floppy ears have no inner-ear accent; the nose prints in place on the head front. The
+  // default 2.8" board is held by a printed spacer.
   expect(names).toEqual([
     "ASSEMBLY.txt",
     "README.txt",
@@ -35,6 +36,7 @@ test("build the default dog and download a zip with every part", async ({ page }
     "face-head-front.stl",
     "face-nose.stl",
     "head-back.stl",
+    "spacer.stl",
     "whole.stl",
   ]);
 });

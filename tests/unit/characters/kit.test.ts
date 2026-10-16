@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { headSize } from "../../../src/characters/kit";
+import { SPACER, headSize } from "../../../src/characters/kit";
+import { boundsOf } from "../../../src/core/bounds";
 import { dogLayout } from "../../../src/generators/display-dog/layout";
 import { validateParams } from "../../../src/core/params";
 import { findGenerator } from "../../../src/generators";
-import { paramsFor } from "../generators/helpers";
+import { buildWith, paramsFor } from "../generators/helpers";
 
 // The kit is exercised through the dog's params; the robot shares every value used here.
 const ID = "display-dog";
@@ -66,6 +67,36 @@ describe("pin holes", () => {
         expect(from[1]).toBeCloseTo(L.faceY + L.wall + 6.7, 5);
         d.forEach((v, k) => expect(v).toBeCloseTo(dir[k], 5));
       });
+    },
+  );
+});
+
+describe("board spacer", () => {
+  const def = findGenerator(ID)!;
+  // A shallow head brings the board's standoff tips within the split's range.
+  const shallow = { display: BOARD, headDepth: 60 };
+
+  it("keeps the head split far enough behind the standoffs for the spacer's frame", () => {
+    const L = dogLayout(paramsFor(ID, shallow));
+    const limit = L.spacer!.front + SPACER.thickness + SPACER.gap;
+    const keys = (headSplitOffset: number) =>
+      validateParams(def, paramsFor(ID, { ...shallow, headSplitOffset })).map((i) => i.key);
+    expect(keys(Math.ceil(limit * 2) / 2)).toEqual([]);
+    expect(keys(Math.floor(limit * 2) / 2)).toContain("headSplitOffset");
+  });
+
+  it(
+    "reaches from over the standoff tips to just before the split",
+    { timeout: 60_000 },
+    async () => {
+      const values = { display: BOARD, detail: "draft", headSplitOffset: 2 };
+      const L = dogLayout(paramsFor(ID, values));
+      const result = await buildWith(ID, values);
+      const spacer = result.parts.find((p) => p.name === "spacer")!;
+      const { min, max } = boundsOf([spacer.mesh])!;
+      // Printed on its frame: its height is split - gap - (tips - socket depth).
+      expect(min[2]).toBeCloseTo(0, 3);
+      expect(max[2]).toBeCloseTo(2 - SPACER.gap - (L.spacer!.front - SPACER.socketDepth), 1);
     },
   );
 });

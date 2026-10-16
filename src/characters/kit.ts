@@ -45,6 +45,19 @@ export const DOWEL = { diameter: 1.75, depth: 3 };
 export const BOSS = { radius: 3.2, half: 4 };
 /** Pin holes to the board's side buttons, for a paperclip. */
 export const PIN_HOLE = 1.6;
+/**
+ * The printed spacer between a board's standoffs and the head split: tube radius, the socket
+ * that fits over a standoff (radius, depth), the frame joining the tubes at the split (width,
+ * thickness), and the gap left to the split face.
+ */
+export const SPACER = {
+  tube: 3.8,
+  socket: 3.05,
+  socketDepth: 1.5,
+  frame: 4,
+  thickness: 2,
+  gap: 0.2,
+};
 const MESH_EDGE: Record<string, number> = { draft: 1.4, normal: 1, fine: 0.6 };
 const deg = Math.PI / 180;
 
@@ -122,7 +135,32 @@ export type CharacterLayout = Omit<HeadSize, "radii" | "corner"> & {
   pinHoles: { name: string; from: Vec3; dir: Vec3 }[];
   /** The face edge the buttons are on, for the assembly notes; null without buttons. */
   buttonEdge: Edge | null;
+  /**
+   * Spacer from the board's standoff tips (`front`) to just before the split (`back`), with a
+   * tube on each standoff at (x, z); the back half has posts there that press it. Null without
+   * standoffs or a head split.
+   */
+  spacer: Spacer | null;
 };
+
+export type Spacer = { posts: (readonly [number, number])[]; front: number; back: number };
+
+/** Signed distance in the split plane (x, z) to the spacer's frame: the posts' bounding box. */
+export function spacerDistance(spacer: Spacer, x: number, z: number): number {
+  const xs = spacer.posts.map((p) => p[0]);
+  const zs = spacer.posts.map((p) => p[1]);
+  const r = SPACER.tube;
+  const [cx, cz] = [
+    (Math.min(...xs) + Math.max(...xs)) / 2,
+    (Math.min(...zs) + Math.max(...zs)) / 2,
+  ];
+  const [hx, hz] = [
+    (Math.max(...xs) - Math.min(...xs)) / 2 + r,
+    (Math.max(...zs) - Math.min(...zs)) / 2 + r,
+  ];
+  const [dx, dz] = [Math.abs(x - cx) - hx, Math.abs(z - cz) - hz];
+  return Math.hypot(Math.max(dx, 0), Math.max(dz, 0)) + Math.min(Math.max(dx, dz), 0);
+}
 
 /** Head and face sized around the selected display (params faceMargin, headDepth, wall). */
 export function headSize(values: Params): HeadSize {
@@ -188,12 +226,19 @@ export function headSize(values: Params): HeadSize {
 
 /**
  * Completes a character's shared layout once it has placed its head at height `cz`.
- * `anatomyZ` is the default neck cut height; `neckRadius` sizes the peg.
+ * `anatomyZ` is the default neck cut height; `neckRadius` sizes the peg. `keepOut` is the
+ * signed distance, in the split plane (x, z), to the character's own features the dowel bosses
+ * must stay clear of (speaker pockets).
  */
 export function characterLayout(
   values: Params,
   head: HeadSize,
-  where: { cz: number; anatomyZ: number; neckRadius: number },
+  where: {
+    cz: number;
+    anatomyZ: number;
+    neckRadius: number;
+    keepOut?: (x: number, z: number) => number;
+  },
 ): CharacterLayout {
   const { radii, corner, ...face } = head;
   const [rx, , rz] = radii;
@@ -212,8 +257,22 @@ export function characterLayout(
   const splitCut = bool(values, "headSplit");
   const split: Split = { cut: splitCut, y: splitCut ? num(values, "headSplitOffset") : 0 };
 
+  const standoffs = face.module.standoffs?.at ?? [];
+  const spacer: Spacer | null =
+    split.cut && standoffs.length > 0
+      ? {
+          posts: standoffs.map(([u, v]) => {
+            const [x, z] = toFace(face.edge, u, v);
+            return [x, cz + z] as const;
+          }),
+          front: face.faceY + wall + face.module.thickness,
+          back: split.y - SPACER.gap,
+        }
+      : null;
+
   // Dowel bosses on the upper sides of the head's cross-section at the split plane, just inside
-  // the wall, found on the actual surface (head and pad blended).
+  // the wall, found on the actual surface (head and pad blended). They start at 50° from the
+  // top and turn away from the spacer and the character's keep-out features when they must.
   const softness = num(values, "softness");
   const core = headCoreSdf({
     head: { radii, corner },
@@ -223,12 +282,23 @@ export function characterLayout(
     softness,
   });
   const reach = Math.hypot(rx, rz) + 5;
-  const bosses = [-1, 1].map((side) => {
-    const t = 50 * deg;
-    const dir: Vec3 = [side * Math.sin(t), 0, Math.cos(t)];
+  const clearance = (x: number, z: number) =>
+    Math.min(
+      spacer ? spacerDistance(spacer, x, z) : Infinity,
+      where.keepOut ? where.keepOut(x, z) : Infinity,
+    );
+  const bossAt = (side: number, angle: number) => {
+    const dir: Vec3 = [side * Math.sin(angle * deg), 0, Math.cos(angle * deg)];
     const surface = surfaceAlong(core, (s) => [dir[0] * s, split.y, cz + dir[2] * s], reach);
     const inward = surface - wall - 2.2;
     return [dir[0] * inward, cz + dir[2] * inward] as const;
+  };
+  const bosses = [-1, 1].map((side) => {
+    for (const angle of [50, 40, 60, 30, 70, 20, 80]) {
+      const boss = bossAt(side, angle);
+      if (clearance(boss[0], boss[1]) >= BOSS.radius + 1) return boss;
+    }
+    return bossAt(side, 50);
   });
 
   const { usb } = face.module;
@@ -267,6 +337,7 @@ export function characterLayout(
     port,
     pinHoles,
     buttonEdge,
+    spacer,
   };
 }
 
@@ -384,6 +455,7 @@ export function placeBattery(
   const aboveCut = (p: Vec3) => normal[1] * p[1] + normal[2] * (p[2] - L.neck.z);
   const steps = 4;
   const fits = (box: Box3) => {
+    if (L.spacer && !clearOfSpacer(L.spacer, box)) return false;
     for (let i = 0; i <= steps; i++) {
       for (let j = 0; j <= steps; j++) {
         for (let m = 0; m <= steps; m++) {
@@ -417,6 +489,44 @@ export function placeBattery(
   return null;
 }
 
+/** Whether a box stays clear of the spacer's tubes, the back half's posts, and the frame. */
+function clearOfSpacer(spacer: Spacer, box: Box3): boolean {
+  const gap = 0.3;
+  const [y0, y1] = [box.min[1], box.max[1]];
+  // Tubes from the standoffs and posts behind them run along y from the socket to the back.
+  if (y1 > spacer.front - SPACER.socketDepth) {
+    for (const [px, pz] of spacer.posts) {
+      const dx = Math.max(box.min[0] - px, 0, px - box.max[0]);
+      const dz = Math.max(box.min[2] - pz, 0, pz - box.max[2]);
+      if (Math.hypot(dx, dz) < SPACER.tube + gap) return false;
+    }
+  }
+  // The frame is a band inside the posts' bounding box, at the back end.
+  if (y1 > spacer.back - SPACER.thickness - gap && y0 < spacer.back + gap) {
+    const inside = [
+      [box.min[0], box.min[2]],
+      [box.max[0], box.min[2]],
+      [box.min[0], box.max[2]],
+      [box.max[0], box.max[2]],
+    ].every(([x, z]) => spacerDistance(spacer, x, z) <= -(SPACER.frame + gap));
+    if (!inside) return false;
+  }
+  return true;
+}
+
+/** Whether the spacer's frame and tubes stay a wall inside the hollow head at the split. */
+function spacerFits(L: CharacterLayout, spacer: Spacer): boolean {
+  const core = headCoreSdf(L);
+  const y = spacer.back - SPACER.thickness / 2;
+  return spacer.posts.every(([px, pz]) =>
+    Array.from({ length: 12 }, (_, i) => (i * Math.PI) / 6).every(
+      (a) =>
+        core([px + SPACER.tube * Math.cos(a), y, pz + SPACER.tube * Math.sin(a)]) <=
+        -(L.wall + 0.3),
+    ),
+  );
+}
+
 /**
  * Cut placement and battery fit. `pegFloorZ` is the lowest height the neck peg's socket may
  * reach (the top of the character's solid body core).
@@ -431,6 +541,17 @@ export function validateCharacter(
     issues.push({
       key: "headSplitOffset",
       message: "The head split runs through the display pocket; move it back.",
+    });
+  } else if (L.spacer && L.spacer.back - SPACER.thickness < L.spacer.front) {
+    issues.push({
+      key: "headSplitOffset",
+      message: "The head split is too close to the board for its spacer; move it back.",
+    });
+  } else if (L.spacer && !spacerFits(L, L.spacer)) {
+    issues.push({
+      key: "faceMargin",
+      message:
+        "The board's spacer does not fit inside the head at the split. Increase the face margin or move the head split forward.",
     });
   }
   if (L.neck.cut) {

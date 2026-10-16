@@ -51,6 +51,11 @@ export type DisplayModule = {
     depth: number;
     edge: Edge;
   }[];
+  /**
+   * Standoffs on the board's back, at (u, v), radius, their tips `thickness` behind the glass
+   * front. A printed spacer sits on them so the closed head holds the board.
+   */
+  standoffs?: { at: readonly (readonly [number, number])[]; radius: number };
 };
 
 export type DisplayId =
@@ -93,6 +98,15 @@ export const DISPLAYS: Record<
         { name: "RESET", at: [-24.78, -11.45], depth: 6.7, edge: "left" },
         { name: "BOOT", at: [-24.78, -19.27], depth: 6.7, edge: "left" },
       ],
+      standoffs: {
+        at: [
+          [-20.5, 32.9],
+          [20.5, 32.9],
+          [20.5, -27.1],
+          [-20.5, -27.1],
+        ],
+        radius: 2.75,
+      },
     },
   },
   "gc9a01-module": {

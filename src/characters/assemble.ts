@@ -21,6 +21,7 @@ import {
   PIN_HOLE,
   POCKET_CLEARANCE,
   POCKET_RIM,
+  SPACER,
   headBounds,
   headCoreSdf,
   neckHeightAt,
@@ -257,9 +258,38 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
         k.cylinderAlong(PIN_HOLE / 2, sub(hole.from, scale(hole.dir, 0.5)), hole.dir, reach),
       );
     }
-    const whole = t(
-      t(M.union([t(outer.subtract(inner)), rimBlock])).subtract(t(M.union(openings))),
-    );
+    // Posts in the back half, flush with its split face, press the spacer onto the board's
+    // standoffs when the head closes. Clipped to the outer surface, they fuse with the wall.
+    const posts = L.spacer
+      ? L.spacer.posts.map(([x, z]) =>
+          k.cylinderY(SPACER.tube, L.split.y, L.split.y + 2 * ry, x, z),
+        )
+      : [];
+    const shellParts = [t(outer.subtract(inner)), rimBlock];
+    if (posts.length > 0) shellParts.push(t(t(M.union(posts)).intersect(outer)));
+    const whole = t(t(M.union(shellParts)).subtract(t(M.union(openings))));
+
+    // The spacer: a tube on each standoff (a socket over its tip), joined by a frame at the
+    // split end. It prints lying on the frame.
+    let spacer: Manifold | null = null;
+    if (L.spacer) {
+      const { posts: at, front, back } = L.spacer;
+      const tubes = at.map(([x, z]) =>
+        k.cylinderY(SPACER.tube, front - SPACER.socketDepth, back, x, z),
+      );
+      const hull = t(
+        CS.hull(at.map(([x, z]) => t(t(CS.circle(SPACER.tube, 32)).translate([x, z])))),
+      );
+      const ring = t(hull.subtract(t(hull.offset(-SPACER.frame, "Round", 2, 32))));
+      const sockets = at.map(([x, z]) =>
+        k.cylinderY(SPACER.socket, front - SPACER.socketDepth - 1, front, x, z),
+      );
+      spacer = t(
+        t(M.union([...tubes, k.prismY(ring, back - SPACER.thickness, back, 0)])).subtract(
+          t(M.union(sockets)),
+        ),
+      );
+    }
 
     // ---- Accents --------------------------------------------------------------------------
     // Clipped to the finished shell, so an accent never fills the window or a port opening.
@@ -409,6 +439,15 @@ export function buildCharacter(wasm: ManifoldLib, spec: CharacterSpec): Generato
         ...(grouped.has(slot) ? { assembly: GROUP[slot] } : {}),
       });
     }
+    if (spacer && L.spacer) {
+      const placed = place(spacer, frontDown(L.spacer.back));
+      result.push({
+        name: "spacer",
+        mesh: meshFromManifold(t(spacer.transform(placed))),
+        color: spec.bodyColor,
+        assembled: invertRigid(placed),
+      });
+    }
     for (const fragment of fragments) {
       const solid = onePiece(fragment.solid, fragment.name.replaceAll("-", " "), true);
       if (!solid) continue;
@@ -513,8 +552,10 @@ function assemblyNotes(spec: CharacterSpec): string {
       L.module.usb
         ? `Turn the board so its USB-C port faces the ${L.edge} opening.`
         : `Route the display wires through the head; the hole low in ${back} is for a cable.`,
-      "Lay the battery flat behind the display, if you use one.",
-      `Push a ${2 * DOWEL.depth - 0.5} mm piece of ${DOWEL.diameter} mm filament into each hole on the split face of ${back}, then press ${front} on.`,
+      L.spacer
+        ? "Set the spacer on the board's back, its four sockets over the standoffs. Lay the battery flat inside its frame, if you use one."
+        : "Lay the battery flat behind the display, if you use one.",
+      `Push a ${2 * DOWEL.depth - 0.5} mm piece of ${DOWEL.diameter} mm filament into each hole on the split face of ${back}, then press ${front} on.${L.spacer ? ` The posts inside ${back} press the spacer, so the board cannot be pushed in.` : ""}`,
     );
   }
   if (L.neck.cut) {

@@ -133,6 +133,7 @@ describe("display-dog build", { timeout: 60_000 }, () => {
       ["head-front", "face"],
       ["head-back", undefined],
       ["body", undefined],
+      ["spacer", undefined],
       ["nose", "face"],
       ["inner-ear-left", "face"],
       ["inner-ear-right", "face"],
@@ -143,9 +144,9 @@ describe("display-dog build", { timeout: 60_000 }, () => {
   });
 
   it.each([
-    [{ neckCut: true, headSplit: true }, ["head-front", "head-back", "body", "whole"]],
+    [{ neckCut: true, headSplit: true }, ["head-front", "head-back", "body", "spacer", "whole"]],
     [{ neckCut: true, headSplit: false }, ["head", "body", "whole"]],
-    [{ neckCut: false, headSplit: true }, ["front", "back", "whole"]],
+    [{ neckCut: false, headSplit: true }, ["front", "back", "spacer", "whole"]],
     [{ neckCut: false, headSplit: false }, ["dog"]],
   ])("cuts %o into %o", async (cuts, names) => {
     const result = await buildWith(ID, draft({ ...cuts, accentMode: "none" }));
@@ -159,7 +160,7 @@ describe("display-dog build", { timeout: 60_000 }, () => {
     const result = await buildWith(ID, draft({ neckCut: false, accentMode: "none" }));
     const pieces = result.parts.filter((p) => p.assembled);
     const whole = result.parts.find((p) => p.name === "whole");
-    expect(pieces.map((p) => p.name)).toEqual(["front", "back"]);
+    expect(pieces.map((p) => p.name)).toEqual(["front", "back", "spacer"]);
     const size = (b: { min: number[]; max: number[] }) => b.max.map((v, i) => v - b.min[i]);
     const placed = pieces.map((p) => transformBounds(p.assembled!, boundsOf([p.mesh])!));
     const union = {
