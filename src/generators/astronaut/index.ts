@@ -1,5 +1,5 @@
 import type { GeneratorDef, NumberParam } from "../../core/types";
-import { MIN_HEAD_DEPTH } from "./layout";
+import { astronautLayout, MIN_HEAD_DEPTH, torsoConnected } from "./layout";
 
 const mm = (
   key: string,
@@ -156,7 +156,16 @@ const astronaut: GeneratorDef = {
       45,
       10,
       80,
-      "Centred on the lower volume's top; the torso is cut flat 0.4 of it above that.",
+      "The torso is cut flat 0.4 of it above its centre.",
+    ),
+    mm(
+      "upperOffset",
+      "Offset",
+      "Upper body",
+      0,
+      -30,
+      40,
+      "Centre above (+) or below (−) the lower volume's top; the head and shoulders move with it.",
     ),
     pct("upperRoundness", "Roundness", "Upper body", 100, "0 is box-like, 100 an ellipsoid."),
     mm("upperForward", "Forward", "Upper body", 0, -10, 10, "Leans the chest toward the face."),
@@ -240,6 +249,17 @@ const astronaut: GeneratorDef = {
     },
   ],
   exportLabel: (v) => String(v.screen),
+  validate(values) {
+    return torsoConnected(astronautLayout(values))
+      ? []
+      : [
+          {
+            key: "upperOffset",
+            message:
+              "The upper volume no longer reaches the lower one; lower the offset or raise the volume blend.",
+          },
+        ];
+  },
 };
 
 export default astronaut;

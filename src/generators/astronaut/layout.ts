@@ -113,8 +113,8 @@ export function astronautLayout(values: Params): AstronautLayout {
 
   // The torso sits under the head's middle, where the neck stem will go. The lower volume
   // reaches a quarter of its height below the base, so the base cut leaves a broad flat foot;
-  // the upper one is centred on the lower one's top, and the torso is cut flat where the
-  // upper one is 0.4 of its height above that, just under its peak.
+  // the upper one is centred `upperOffset` above the lower one's top, and the torso is cut
+  // flat where the upper one is 0.4 of its height above its centre, just under its peak.
   const cy = depth * 0.45;
   const volume = (prefix: "lower" | "upper", z0: number, z1: number): Volume => ({
     center: [0, cy - num(values, `${prefix}Forward`), (z0 + z1) / 2],
@@ -123,9 +123,10 @@ export function astronautLayout(values: Params): AstronautLayout {
   });
   const lowerTop = num(values, "lowerHeight");
   const upperHeight = num(values, "upperHeight");
+  const upperCenter = lowerTop + num(values, "upperOffset");
   const lower = volume("lower", -0.25 * lowerTop, lowerTop);
-  const upper = volume("upper", lowerTop - upperHeight / 2, lowerTop + upperHeight / 2);
-  const top = lowerTop + 0.4 * upperHeight;
+  const upper = volume("upper", upperCenter - upperHeight / 2, upperCenter + upperHeight / 2);
+  const top = upperCenter + 0.4 * upperHeight;
 
   const armThickness = num(values, "armThickness");
   const armWidth = num(values, "armWidth");
@@ -313,11 +314,35 @@ function superellipsoid(v: Volume): Sdf {
   };
 }
 
-/** Torso, arms, and legs, flat at the base, with the head's bottom pressed into the top. */
-export function bodySdf(L: AstronautLayout): Sdf {
-  const { top, stackBlend, blend } = L.body;
+/** The two torso volumes blended together, without limbs or cuts. */
+export function torsoSdf(L: AstronautLayout): Sdf {
   const lower = superellipsoid(L.body.lower);
   const upper = superellipsoid(L.body.upper);
+  const k = L.body.stackBlend;
+  return (p) => smoothUnion(lower(p), upper(p), k);
+}
+
+/**
+ * Whether the torso volumes form one piece: samples the blended torso every 0.25 mm on the
+ * segment between the two volume centres, which is inside both shapes at its ends.
+ */
+export function torsoConnected(L: AstronautLayout): boolean {
+  const torso = torsoSdf(L);
+  const a = L.body.lower.center;
+  const b = L.body.upper.center;
+  const steps = Math.max(1, Math.ceil(Math.sqrt(dot(sub(b, a), sub(b, a))) / 0.25));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const p: Vec3 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    if (torso(p) > 0) return false;
+  }
+  return true;
+}
+
+/** Torso, arms, and legs, flat at the base, with the head's bottom pressed into the top. */
+export function bodySdf(L: AstronautLayout): Sdf {
+  const { top, blend } = L.body;
+  const torso = torsoSdf(L);
   const { arms, legs } = L;
   const arm = mirrored((s) =>
     slab(
@@ -341,8 +366,7 @@ export function bodySdf(L: AstronautLayout): Sdf {
   );
   const head = headSdf(L);
   return (p) => {
-    let d = smoothUnion(lower(p), upper(p), stackBlend);
-    d = smoothUnion(d, arm(p), blend);
+    let d = smoothUnion(torso(p), arm(p), blend);
     d = smoothUnion(d, leg(p), blend);
     return Math.max(d, -p[2], p[2] - top, -(head(p) - 0.2));
   };
@@ -440,9 +464,11 @@ export function antennaBounds(L: AstronautLayout): Box3 {
 }
 
 export function patchBounds(L: AstronautLayout): Box3 {
-  const { top, upper } = L.body;
+  const { top, lower, upper, stackBlend } = L.body;
+  // The patch's height can fall on either volume, so reach past both fronts and the bulge.
+  const front = Math.min(span(lower, 1)[0], span(upper, 1)[0]) - stackBlend / 4 - 2;
   return {
-    min: [-0.4 * upper.half[0] - 2, span(upper, 1)[0] - 2, 0.5 * top - 2],
+    min: [-0.4 * upper.half[0] - 2, front, 0.5 * top - 2],
     max: [0.4 * upper.half[0] + 2, upper.center[1] - upper.half[1] / 2 + 1, 0.72 * top + 2],
   };
 }

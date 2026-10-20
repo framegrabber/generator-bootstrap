@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { boundsOf } from "../../../src/core/bounds";
+import { validateParams } from "../../../src/core/params";
 import type { Params } from "../../../src/core/types";
-import { buildWith } from "./helpers";
+import { findGenerator } from "../../../src/generators";
+import { buildWith, paramsFor } from "./helpers";
 
 /** Width (x) and height (z) of the meshed head. */
 async function headSize(overrides: Params): Promise<[number, number]> {
@@ -33,4 +35,18 @@ describe("astronaut head", () => {
       expect(mh).toBeCloseTo(2 * short + 6, 0);
     },
   );
+});
+
+describe("astronaut validate", () => {
+  const def = findGenerator("astronaut")!;
+  const issueKeys = (overrides: Params) =>
+    validateParams(def, paramsFor("astronaut", overrides)).map((i) => i.key);
+
+  it("rejects an upper volume that floats free of the lower one", () => {
+    // Upper half height 22.5: an offset of 25 leaves a 2.5 mm gap between the volumes.
+    expect(issueKeys({ upperOffset: 20, stackBlend: 0 })).toEqual([]);
+    expect(issueKeys({ upperOffset: 25, stackBlend: 0 })).toEqual(["upperOffset"]);
+    // A volume blend wider than the gap bridges it into a waist.
+    expect(issueKeys({ upperOffset: 25, stackBlend: 10 })).toEqual([]);
+  });
 });
