@@ -4,9 +4,7 @@ import {
   capsule,
   cross,
   dot,
-  ellipsoid,
   normalize,
-  roundBox,
   roundCylinder,
   smoothUnion,
   sub,
@@ -18,8 +16,9 @@ import type { Params } from "../../core/types";
 
 /**
  * The astronaut's shapes from its params, built Deskimon-style from a few blocks: a flat-
- * fronted pillow head sized around the Waveshare 2.8" board, a domed torso, slab arms, and
- * rounded-box legs, joined with small fillets. Main-thread safe (pure math).
+ * fronted pillow head sized around the Waveshare 2.8" board, a torso of two stacked
+ * superellipsoids blended together, slab arms, and rounded-box legs, joined with small
+ * fillets. Main-thread safe (pure math).
  *
  * Frame: Z up, face toward -Y, millimetres. The face (head front) is the plane y = 0, centred
  * on x = 0 and on the screen's visible area. The body rests on z = 0.
@@ -59,15 +58,15 @@ export type AstronautLayout = {
     view: Rect;
   };
   body: {
-    width: number;
-    height: number;
-    depth: number;
     /** Torso centre along y. */
     cy: number;
-    radius: number;
-    /** Where the lower box ends and the dome takes over. */
-    domeFrom: number;
-    belly: number;
+    /** The flat top the head sits on. */
+    top: number;
+    lower: Volume;
+    upper: Volume;
+    /** Fillet between the two volumes. */
+    stackBlend: number;
+    /** Fillet where arms and legs meet the torso. */
     blend: number;
   };
   arms: { shoulder: Vec3; hand: Vec3; thickness: number; width: number; radius: number };
@@ -78,6 +77,9 @@ export type AstronautLayout = {
   colors: { suit: string; trim: string; patch: string; eyes: string };
   meshEdge: number;
 };
+
+/** A superellipsoid: exponent 2 is an ellipsoid, larger exponents approach a box. */
+export type Volume = { center: Vec3; half: Vec3; exponent: number };
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
 
@@ -109,16 +111,25 @@ export function astronautLayout(values: Params): AstronautLayout {
   const hh = board.minHalfHeight + num(values, "headMarginTop");
   const depth = num(values, "headDepth");
 
-  const width = num(values, "bodyWidth");
-  const height = num(values, "bodyHeight");
-  const bodyDepth = num(values, "bodyDepth");
-  // The torso sits under the head's middle, where the neck stem will go.
+  // The torso sits under the head's middle, where the neck stem will go. The lower volume
+  // reaches a quarter of its height below the base, so the base cut leaves a broad flat foot;
+  // the upper one is centred on the lower one's top, and the torso is cut flat where the
+  // upper one is 0.4 of its height above that, just under its peak.
   const cy = depth * 0.45;
-  const radius = (num(values, "bodyRoundness") / 100) * Math.min(width, bodyDepth) * 0.5;
+  const volume = (prefix: "lower" | "upper", z0: number, z1: number): Volume => ({
+    center: [0, cy - num(values, `${prefix}Forward`), (z0 + z1) / 2],
+    half: [num(values, `${prefix}Width`) / 2, num(values, `${prefix}Depth`) / 2, (z1 - z0) / 2],
+    exponent: 2 + 10 * (1 - num(values, `${prefix}Roundness`) / 100),
+  });
+  const lowerTop = num(values, "lowerHeight");
+  const upperHeight = num(values, "upperHeight");
+  const lower = volume("lower", -0.25 * lowerTop, lowerTop);
+  const upper = volume("upper", lowerTop - upperHeight / 2, lowerTop + upperHeight / 2);
+  const top = lowerTop + 0.4 * upperHeight;
 
   const armThickness = num(values, "armThickness");
   const armWidth = num(values, "armWidth");
-  const shoulder: Vec3 = [width / 2 - 0.36 * armThickness, cy, 0.83 * height];
+  const shoulder: Vec3 = [upper.half[0] - 0.36 * armThickness, upper.center[1], 0.83 * top];
   const out = rad(num(values, "armAngle"));
   const fwd = rad(num(values, "armForward"));
   const armLength = num(values, "armLength");
@@ -133,7 +144,11 @@ export function astronautLayout(values: Params): AstronautLayout {
   const toeOut = rad(num(values, "legAngle"));
   const legLength = num(values, "legLength");
   // Legs start inside the torso's front half and point forward, toes turned out.
-  const hip: Vec3 = [num(values, "legSpread"), cy - 0.13 * bodyDepth, legHeight / 2 - 1.4];
+  const hip: Vec3 = [
+    num(values, "legSpread"),
+    lower.center[1] - 0.26 * lower.half[1],
+    legHeight / 2 - 1.4,
+  ];
   const toe: Vec3 = [
     hip[0] + legLength * Math.sin(toeOut),
     hip[1] - legLength * Math.cos(toeOut),
@@ -147,7 +162,7 @@ export function astronautLayout(values: Params): AstronautLayout {
       hw,
       hh,
       depth,
-      cz: height - HEAD_SINK + hh,
+      cz: top - HEAD_SINK + hh,
       corner: (num(values, "headCorner") / 100) * Math.min(hw, hh),
       frontEdge: num(values, "headFrontEdge"),
       backRadius: (num(values, "headBackRound") / 100) * (depth - RIM),
@@ -155,13 +170,11 @@ export function astronautLayout(values: Params): AstronautLayout {
       view: board.view,
     },
     body: {
-      width,
-      height,
-      depth: bodyDepth,
       cy,
-      radius,
-      domeFrom: height * (1 - 0.55 * (num(values, "bodyDome") / 100)),
-      belly: num(values, "belly"),
+      top,
+      lower,
+      upper,
+      stackBlend: num(values, "stackBlend"),
       blend: num(values, "blend"),
     },
     arms: {
@@ -282,16 +295,29 @@ export function eyesSdf(L: AstronautLayout): Sdf {
     Math.max(rect2(Math.abs(p[0]), p[2], ex, cz, 5 * k, 8 * k, 5 * k), Math.abs(p[1] - 0.55) - 0.4);
 }
 
+/**
+ * Superellipsoid distance, approximate: the normalised radius minus one, scaled by the
+ * smallest half size. Right sign and zero set, which is all meshing and blending need.
+ */
+function superellipsoid(v: Volume): Sdf {
+  const [cx, cy, cz] = v.center;
+  const [a, b, c] = v.half;
+  const n = v.exponent;
+  const scale = Math.min(a, b, c);
+  return (p) => {
+    const f =
+      Math.abs((p[0] - cx) / a) ** n +
+      Math.abs((p[1] - cy) / b) ** n +
+      Math.abs((p[2] - cz) / c) ** n;
+    return (f ** (1 / n) - 1) * scale;
+  };
+}
+
 /** Torso, arms, and legs, flat at the base, with the head's bottom pressed into the top. */
 export function bodySdf(L: AstronautLayout): Sdf {
-  const { width, height, depth, cy, radius: r, domeFrom, belly, blend } = L.body;
-  const lower: Vec3 = [width / 2, depth / 2, (domeFrom + 0.5 * r) / 2];
-  const lowerCenter: Vec3 = [0, cy, (domeFrom - 0.5 * r) / 2];
-  // The dome peaks just above the top cut, so the top stays a small flat plateau.
-  const dome: Vec3 = [width / 2, depth / 2, height - domeFrom + 0.07 * height];
-  const domeCenter: Vec3 = [0, cy, domeFrom];
-  const bellyRadii: Vec3 = [0.39 * width, 0.39 * depth, 0.34 * height];
-  const bellyCenter: Vec3 = [0, cy - depth / 2 + bellyRadii[1] - belly, 0.39 * height];
+  const { top, stackBlend, blend } = L.body;
+  const lower = superellipsoid(L.body.lower);
+  const upper = superellipsoid(L.body.upper);
   const { arms, legs } = L;
   const arm = mirrored((s) =>
     slab(
@@ -315,13 +341,10 @@ export function bodySdf(L: AstronautLayout): Sdf {
   );
   const head = headSdf(L);
   return (p) => {
-    let torso = roundBox(p, lowerCenter, lower, r);
-    if (domeFrom < height) torso = smoothUnion(torso, ellipsoid(p, domeCenter, dome), 0.8 * r);
-    if (belly > 0)
-      torso = smoothUnion(torso, ellipsoid(p, bellyCenter, bellyRadii), 0.146 * height);
-    let d = smoothUnion(torso, arm(p), blend);
+    let d = smoothUnion(lower(p), upper(p), stackBlend);
+    d = smoothUnion(d, arm(p), blend);
     d = smoothUnion(d, leg(p), blend);
-    return Math.max(d, -p[2], p[2] - height, -(head(p) - 0.2));
+    return Math.max(d, -p[2], p[2] - top, -(head(p) - 0.2));
   };
 }
 
@@ -350,15 +373,15 @@ export function antennaSdf(L: AstronautLayout): Sdf {
   return (p) => capsule(p, [x, y, cz + 8], [x, y, cz + 26], 1.2);
 }
 
-/** A 0.6 mm thick patch on the chest, following the body's surface. */
+/** A 0.6 mm thick patch on the upper volume's front, following the body's surface. */
 export function patchSdf(L: AstronautLayout): Sdf {
   const body = bodySdf(L);
-  const { width, height, depth, cy } = L.body;
-  const front = cy - depth / 4;
+  const { top, upper } = L.body;
+  const front = upper.center[1] - upper.half[1] / 2;
   return (p) =>
     Math.max(
       body(p) - 0.6,
-      rect2(p[0], p[2], 0, 0.61 * height, 0.2 * width, 0.11 * height, 2),
+      rect2(p[0], p[2], 0, 0.61 * top, 0.4 * upper.half[0], 0.11 * top, 2),
       p[1] - front,
     );
 }
@@ -370,23 +393,35 @@ export function headBounds(L: AstronautLayout): Box3 {
   return { min: [-hw, 0, cz - hh], max: [hw, depth, cz + hh] };
 }
 
+/** The extent of a volume along `axis`: [min, max]. */
+const span = (v: Volume, axis: 0 | 1 | 2) => [
+  v.center[axis] - v.half[axis],
+  v.center[axis] + v.half[axis],
+];
+
 export function bodyBounds(L: AstronautLayout): Box3 {
-  const { width, height, depth, cy, belly } = L.body;
+  const { top, lower, upper, stackBlend, blend } = L.body;
+  // A smooth union can bulge up to a quarter of its blend past both shapes.
+  const bulge = (stackBlend + blend) / 4;
   const { arms, legs } = L;
   const armReach = Math.max(arms.thickness, arms.width) / 2;
   const legReach = Math.max(legs.width, legs.height) / 2;
   const xs = [
-    width / 2,
+    lower.half[0],
+    upper.half[0],
     arms.shoulder[0] + armReach,
     arms.hand[0] + armReach,
     legs.toe[0] + legReach,
   ];
-  const ys = [cy - depth / 2 - belly, arms.hand[1] - armReach, legs.toe[1] - legReach];
-  const x = Math.max(...xs) + 2;
-  return {
-    min: [-x, Math.min(...ys) - 2, -1],
-    max: [x, Math.max(cy + depth / 2, arms.shoulder[1] + armReach) + 2, height + 1],
-  };
+  const ys = [
+    span(lower, 1)[0],
+    span(upper, 1)[0],
+    arms.hand[1] - armReach,
+    legs.toe[1] - legReach,
+  ];
+  const yBack = Math.max(span(lower, 1)[1], span(upper, 1)[1], arms.shoulder[1] + armReach);
+  const x = Math.max(...xs) + bulge;
+  return { min: [-x, Math.min(...ys) - bulge, 0], max: [x, yBack + bulge, top] };
 }
 
 export function earsBounds(L: AstronautLayout): Box3 {
@@ -405,9 +440,9 @@ export function antennaBounds(L: AstronautLayout): Box3 {
 }
 
 export function patchBounds(L: AstronautLayout): Box3 {
-  const { width, height, depth, cy, belly } = L.body;
+  const { top, upper } = L.body;
   return {
-    min: [-0.2 * width - 2, cy - depth / 2 - belly - 2, 0.5 * height - 2],
-    max: [0.2 * width + 2, cy - depth / 4 + 1, 0.72 * height + 2],
+    min: [-0.4 * upper.half[0] - 2, span(upper, 1)[0] - 2, 0.5 * top - 2],
+    max: [0.4 * upper.half[0] + 2, upper.center[1] - upper.half[1] / 2 + 1, 0.72 * top + 2],
   };
 }
