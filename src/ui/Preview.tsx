@@ -40,6 +40,7 @@ export function Preview() {
 
   const parts = result?.parts ?? null;
   const cutPlanes = result?.cutPlanes ?? [];
+  const standIns = result?.standIns ?? [];
   const hasAssembled = parts?.some((p) => p.assembled) ?? false;
   const chosenLayout = useView((s) => s.layout);
   const layout = hasAssembled ? chosenLayout : "print";
@@ -86,6 +87,10 @@ export function Preview() {
               color={part.color ?? PART_PALETTE[index % PART_PALETTE.length]}
             />
           ))}
+          {layout === "assembled" &&
+            standIns.map((s) => (
+              <PartMesh key={`stand-in-${s.name}`} mesh={s.mesh} matrix={null} color={s.color} />
+            ))}
           {showCuts && cutPlanes.map((plane) => <CutPlaneMesh key={plane.name} plane={plane} />)}
         </group>
         {bounds && <Bed bounds={bounds} />}

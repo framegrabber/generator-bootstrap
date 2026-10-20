@@ -105,12 +105,20 @@ export type ExtraFile = { path: string; content: string };
  */
 export type CutPlane = { name: string; corners: [Vec3, Vec3, Vec3, Vec3] };
 
+/**
+ * Hardware drawn in the assembled view only, such as the display a character's face frames:
+ * coordinates in the assembled frame. Never exported or checked.
+ */
+export type StandIn = { name: string; mesh: Mesh; color: string };
+
 export type GeneratorResult = {
   parts: Part[];
   extraFiles?: ExtraFile[];
   warnings?: string[];
   /** Cuts to show in the assembled view. */
   cutPlanes?: CutPlane[];
+  /** Hardware to show in the assembled view. */
+  standIns?: StandIn[];
 };
 
 export type BuildContext = { wasm: ManifoldLib };

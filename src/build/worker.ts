@@ -21,6 +21,8 @@ scope.onmessage = async ({ data: request }) => {
 /** Each buffer once: listing a shared buffer twice makes postMessage throw DataCloneError. */
 function transferablesOf(result: GeneratorResult): Transferable[] {
   const buffers = new Set<ArrayBufferLike>();
-  for (const { mesh } of result.parts) buffers.add(mesh.positions.buffer).add(mesh.indices.buffer);
+  for (const { mesh } of [...result.parts, ...(result.standIns ?? [])]) {
+    buffers.add(mesh.positions.buffer).add(mesh.indices.buffer);
+  }
   return [...buffers] as ArrayBuffer[];
 }
