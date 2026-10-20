@@ -1,5 +1,5 @@
 import type { GeneratorDef, NumberParam } from "../../core/types";
-import { astronautLayout, MIN_HEAD_DEPTH, torsoConnected } from "./layout";
+import { astronautLayout, MIN_HEAD_DEPTH, validateLayout } from "./layout";
 
 const mm = (
   key: string,
@@ -61,27 +61,16 @@ const deg = (
 });
 
 /**
- * Look development for a Deskimon-style astronaut around the Waveshare 2.8" board: every
- * proportion of the head, torso, arms, and legs is a param. The parts are solid previews;
- * hollowing, the head split, and the clamps come in the printable iteration.
+ * A Deskimon-style astronaut around the Waveshare 2.8" board (landscape, USB-C on the right):
+ * every proportion of the head, torso, arms, and legs is a param. The head prints as a front
+ * and a back half, held together by the helmet discs and the neck socket; see layout.ts.
  */
 const astronaut: GeneratorDef = {
   id: "astronaut",
   name: "Screen astronaut",
   description:
-    'Look development: a sitting astronaut whose face is the Waveshare 2.8" display. Tune the head, body, arms, and legs; the parts are solid previews, not printable yet.',
+    "A sitting astronaut whose face is the Waveshare ESP32-S3-Touch-LCD-2.8. The head prints in two halves that the helmet discs and the neck socket hold together; the body prints in one piece.",
   params: [
-    {
-      kind: "select",
-      key: "screen",
-      label: "Screen",
-      group: "Head",
-      default: "landscape",
-      options: [
-        { value: "landscape", label: "Landscape (USB-C right)" },
-        { value: "portrait", label: "Portrait (USB-C down)" },
-      ],
-    },
     mm(
       "headMarginSide",
       "Extra width",
@@ -203,18 +192,9 @@ const astronaut: GeneratorDef = {
     mm("legSpread", "Spread", "Feet", 15, 5, 35, "Hip distance from the middle."),
     pct("legRoundness", "Roundness", "Feet", 85),
 
-    { kind: "boolean", key: "helmetEars", label: "Helmet discs", group: "Details", default: true },
     {
-      ...mm("earSize", "Disc radius", "Details", 11.5, 5, 20),
-      visibleWhen: (v) => v.helmetEars === true,
-    },
-    {
-      kind: "boolean",
-      key: "antenna",
-      label: "Antenna",
-      group: "Details",
-      default: false,
-      visibleWhen: (v) => v.helmetEars === true,
+      ...mm("earSize", "Helmet disc radius", "Details", 11.5, 5, 20),
+      help: "The discs cap the bosses that hold the head halves together.",
     },
     { kind: "boolean", key: "chestPatch", label: "Chest patch", group: "Details", default: true },
 
@@ -239,27 +219,16 @@ const astronaut: GeneratorDef = {
       kind: "number",
       key: "meshEdge",
       label: "Mesh detail",
-      group: "Preview",
+      group: "Print",
       unit: "mm",
       default: 0.8,
       min: 0.4,
       max: 2,
       step: 0.1,
-      help: "Triangle size; larger rebuilds faster while tuning.",
+      help: "Triangle size of the curved surfaces; smaller is smoother and slower.",
     },
   ],
-  exportLabel: (v) => String(v.screen),
-  validate(values) {
-    return torsoConnected(astronautLayout(values))
-      ? []
-      : [
-          {
-            key: "upperOffset",
-            message:
-              "The upper volume no longer reaches the lower one; lower the offset or raise the volume blend.",
-          },
-        ];
-  },
+  validate: (values) => validateLayout(astronautLayout(values)),
 };
 
 export default astronaut;

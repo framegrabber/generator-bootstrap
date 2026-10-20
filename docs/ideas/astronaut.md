@@ -13,7 +13,18 @@ A sitting astronaut whose face is the Waveshare ESP32-S3-Touch-LCD-2.8, styled a
 ## Choices made without the user
 
 - Name "Screen astronaut" (id `astronaut`): it sorts after "Display dog", so the default generator and its e2e test stay unchanged.
-- Screen orientation is a param: landscape (USB-C right, the app's default for this board) or portrait (USB-C down, Deskimon's cable route).
+- Screen orientation was a param in iteration 1 (landscape or portrait). Iteration 2 dropped portrait: USB-C down would run the plug into the neck, which neither the stem nor the socket can pass.
 - Body defaults are Deskimon's body measured from its builder meshes, scaled by the square root of the face-area ratio (1.37).
 
-Status: iteration 1 implemented in `src/generators/astronaut/`.
+### Iteration 2 (printable), choices made without the user
+
+- The seam is not always at the head's middle: with USB-C on the right side 9.7 mm behind the face, a disc centred at the middle (y = 20.3 for the 45 mm head) would cover the plug opening, so the seam moves back until the right disc clears it (y = 26.2 with the R11.5 discs). Discs stay centred in height, as in the look.
+- Bosses and stem have a lemon profile (circle plus 45° points toward ±y) instead of a round one with a snap bead: a round boss split along the seam has its curved side facing the bed in both halves' print poses. The discs press on with 0.15 mm clearance; no snap bead, so a loose disc needs a drop of glue.
+- The back half prints on its back (the flat middle of a 20 % back rounding), not on its seam: printed seam down, its flat back would be an 80 mm unsupported ceiling.
+- No separate spacer: the back half's posts end in sockets that sit directly on the board's standoff tips.
+- Speakers lie flat on the back wall in fences with a lead gap, grille holes behind; the battery lies loose between the posts.
+- Board buttons get Ø1.6 pin holes through the top (a paperclip), as on the display characters; printed plungers were not added.
+- The antenna and the helmet-disc toggle were removed: an antenna on a disc would print as an unsupported horizontal rod, and without discs nothing holds the head halves together.
+- The chest patch prints in place with the body (two colours); the screen and eyes are preview-only stand-ins (`standIns`, new in `GeneratorResult`).
+
+Status: iteration 1 in commits 4f86958, 2640e9a, c9079c1, eff426a; iteration 2 (printable) in the commits that follow.
