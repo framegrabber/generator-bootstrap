@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 
 async function downloadZip(page: Page): Promise<{ filename: string; zip: JSZip }> {
   const button = page.getByRole("button", { name: "Download ZIP" });
-  await expect(button).toBeEnabled({ timeout: 30_000 });
+  await expect(button).toBeEnabled({ timeout: 60_000 });
   const [file] = await Promise.all([page.waitForEvent("download"), button.click()]);
   return {
     filename: file.suggestedFilename(),
@@ -16,6 +16,9 @@ async function downloadZip(page: Page): Promise<{ filename: string; zip: JSZip }
 }
 
 test("build the default dog and download a zip with every part", async ({ page }) => {
+  // The dog builds twice (defaults, then floppy ears) on a cold dev server; on a CI runner that
+  // alone takes close to the default 30 s test budget, leaving none for the export.
+  test.setTimeout(90_000);
   await page.goto("/");
   await expect(page.getByLabel("Generator")).toHaveValue("display-dog");
   await page.getByLabel("Ears", { exact: true }).selectOption("floppy");
