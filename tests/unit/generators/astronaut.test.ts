@@ -5,7 +5,7 @@ import { getManifold, withScope, type WasmScope } from "../../../src/core/manifo
 import { validateParams } from "../../../src/core/params";
 import type { Params, Part } from "../../../src/core/types";
 import { findGenerator } from "../../../src/generators";
-import { astronautLayout, WALL } from "../../../src/generators/astronaut/layout";
+import { astronautLayout, TWIST, WALL } from "../../../src/generators/astronaut/layout";
 import { buildWith, paramsFor } from "./helpers";
 
 const ID = "astronaut";
@@ -99,6 +99,50 @@ describe("astronaut fit", () => {
       const head = t(wasm.Manifold.union(halves));
       expect(overlap(head, module), "module").toBeLessThan(0.5);
       for (const s of speakers) expect(overlap(head, s), "speaker").toBeLessThan(0.5);
+    });
+  });
+
+  it("twists the helmet discs on and locks them", { timeout: 60_000 }, async () => {
+    const result = await buildWith(ID, draft());
+    const L = astronautLayout(paramsFor(ID, draft()));
+    const { cz } = L.head;
+    const wasm = await getManifold();
+    withScope((scope) => {
+      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+      const solid = (name: string) =>
+        assembledSolid(
+          wasm,
+          scope,
+          result.parts.find((p) => p.name === name)!,
+        );
+      const head = t(wasm.Manifold.union([solid("head-front"), solid("head-back")]));
+      for (const [name, s] of [
+        ["disc-left", -1],
+        ["disc-right", 1],
+      ] as const) {
+        const disc = solid(name);
+        // The disc turned `turn` degrees back from locked (anticlockwise seen from outside)
+        // and `out` mm off the head.
+        const overlap = (turn: number, out: number) => {
+          const centred = t(disc.translate([0, -L.seamY, -cz]));
+          const moved = t(t(centred.rotate([s * turn, 0, 0])).translate([s * out, L.seamY, cz]));
+          return t(moved.intersect(head)).volume();
+        };
+        // On: straight in with the notches over the hooks, then the clockwise turn, which
+        // draws the disc the last `rise` onto the head.
+        for (const out of [8, 4, 2, 1]) {
+          expect(overlap(TWIST.turn, TWIST.rise + out), `${name} in at ${out}`).toBeLessThan(0.5);
+        }
+        for (const f of [1, 0.75, 0.5, 0.25, 0]) {
+          expect(overlap(TWIST.turn * f, TWIST.rise * f), `${name} turn ${f}`).toBeLessThan(0.5);
+        }
+        // Short of the notches, the hooks hold it: pulled 1 mm off, locked or half-turned.
+        expect(overlap(0, 1), `${name} pulled locked`).toBeGreaterThan(2);
+        expect(
+          overlap(TWIST.turn / 2, TWIST.rise / 2 + 1),
+          `${name} pulled mid-turn`,
+        ).toBeGreaterThan(2);
+      }
     });
   });
 });

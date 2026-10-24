@@ -1,5 +1,5 @@
 import type { GeneratorDef, NumberParam } from "../../core/types";
-import { astronautLayout, MIN_HEAD_DEPTH, validateLayout } from "./layout";
+import { astronautLayout, MIN_DISC_RADIUS, MIN_HEAD_DEPTH, validateLayout } from "./layout";
 
 const mm = (
   key: string,
@@ -193,8 +193,8 @@ const astronaut: GeneratorDef = {
     pct("legRoundness", "Roundness", "Feet", 85),
 
     {
-      ...mm("earSize", "Helmet disc radius", "Details", 11.5, 5, 20),
-      help: "The discs cap the bosses that hold the head halves together.",
+      ...mm("earSize", "Helmet disc radius", "Details", 11.5, MIN_DISC_RADIUS, 20),
+      help: "The discs twist onto the bosses and hold the head halves together.",
     },
     { kind: "boolean", key: "chestPatch", label: "Chest patch", group: "Details", default: true },
 

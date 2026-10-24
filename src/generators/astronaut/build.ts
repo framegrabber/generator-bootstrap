@@ -35,6 +35,7 @@ import {
   patchSdf,
   STEM,
   TONGUE,
+  TWIST,
   USB_OPENING,
   WALL,
   type AstronautLayout,
@@ -114,8 +115,41 @@ const build: GeneratorBuild = (values, { wasm }) => {
       WALL + POCKET.depth,
       cz,
     );
+    // Twist-lock hooks on each boss, one on each lemon point (`end` -1 on the front half, +1
+    // on the back); see TWIST. Their frame starts at the outer side face, z outward.
+    const point = BOSS.radius * Math.SQRT2;
+    const tipFrame = (s: 1 | -1) => sideFrame(s, s * hw);
+    /** A hook grown by `fit` all round: a hull of 45° squares along the point axis. */
+    const hook = (end: 1 | -1, fit: number) => {
+      const half = TWIST.width + fit * Math.SQRT2;
+      const back = TWIST.hook + 0.5;
+      return t(
+        M.hull(
+          (
+            [
+              [BOSS.length + fit, 0],
+              [BOSS.length - TWIST.flat, 0],
+              [BOSS.length - TWIST.flat - back, back],
+            ] as const
+          ).flatMap(([z, inward]) => {
+            const c = end * (point + TWIST.hook - TWIST.width - inward);
+            return [
+              [c + half, 0, z],
+              [c, half, z],
+              [c - half, 0, z],
+              [c, -half, z],
+            ] satisfies Vec3[];
+          }),
+        ),
+      );
+    };
     const bosses = ([-1, 1] as const).map((s) =>
-      sweep(lemon(BOSS.radius), sideFrame(s, s * (hw - WALL)), WALL + BOSS.length),
+      t(
+        M.union([
+          sweep(lemon(BOSS.radius), sideFrame(s, s * (hw - WALL)), WALL + BOSS.length),
+          ...([-1, 1] as const).map((end) => t(hook(end, 0).transform(tipFrame(s)))),
+        ]),
+      ),
     );
     const stem = sweep(lemon(STEM.radius), stemFrame(cz - hh - STEM.length), STEM.length + WALL);
     const openings: Manifold[] = [
@@ -183,13 +217,29 @@ const build: GeneratorBuild = (values, { wasm }) => {
       ),
     );
 
-    // ---- Helmet discs: a rounded disc with the boss's profile as its bore --------------
+    // ---- Helmet discs: a rounded disc with a twist-lock bore --------------------------
+    // The bore is round so the disc can turn on the lemon. Each hook slides down a keyway,
+    // then the disc turns clockwise: the hook's path relative to the disc runs from -turn to
+    // 0 degrees, its back face rising `rise` toward the head on the way and meeting the
+    // groove's ceiling at the stop (its `fit` taken back there along the 45° face).
+    const lockShift = TWIST.fit * Math.SQRT2;
+    const boreDepth = BOSS.length + TWIST.fit + lockShift + 0.05;
+    const STEPS = 14;
     const discs = ([-1, 1] as const).map((s) => {
-      const bore = sweep(
-        lemon(BOSS.radius + DISC.fit),
-        sideFrame(s, s * (hw - 0.01)),
-        BOSS.length + 0.3,
-      );
+      const cylinder = t(t(CS.circle(point + TWIST.boreFit, 64)).extrude(boreDepth + 0.01));
+      const cuts = [t(cylinder.translate([0, 0, -0.01]))];
+      for (const end of [-1, 1] as const) {
+        const grown = hook(end, TWIST.fit);
+        const at = (i: number) => {
+          const angle = -TWIST.turn * (1 - i / STEPS);
+          const shift = lockShift + (TWIST.rise * angle) / TWIST.turn;
+          return t(t(grown.rotate([0, 0, angle])).translate([0, 0, shift]));
+        };
+        const entry = at(0);
+        cuts.push(t(M.hull([entry, t(entry.translate([0, 0, -BOSS.length - 3]))])));
+        for (let i = 0; i < STEPS; i++) cuts.push(t(M.hull([at(i), at(i + 1)])));
+      }
+      const bore = t(t(M.union(cuts)).transform(tipFrame(s)));
       return t(mesh(discSdf(L, s), discBounds(L, s)).subtract(bore));
     });
 
@@ -341,7 +391,10 @@ function assemblyNotes(L: AstronautLayout): string {
     "   bottom, and plug them and the battery into the board.",
     "3. Close the head: the tongue of head-front slides into head-back, and the four posts",
     "   press the board onto the front.",
-    "4. Push a helmet disc onto each side boss; the discs hold the halves together.",
+    "4. Fit a helmet disc on each side boss: turn it so the two notches inside line up with",
+    "   the hooks on the boss's points, push it on as far as it goes, and turn it clockwise",
+    `   (seen from that side) about ${TWIST.turn} degrees until it stops. The turn draws the`,
+    "   disc tight and clamps the halves together; turn it back to open the head.",
     "5. Plug the neck stem into the socket on top of the body.",
     "",
     `Buttons: the pin holes on top of the head reach ${buttons} (left to right from`,

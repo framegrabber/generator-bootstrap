@@ -23,9 +23,9 @@ import type { Params, ValidationIssue } from "../../core/types";
  * on x = 0 and on the screen's visible area. The body rests on z = 0.
  *
  * The head prints as two halves split at `seamY`, held together by the "triangle": a boss on
- * each side, split by the seam and capped by a helmet disc, and the neck stem, split the same
- * way and held in the body's socket. Bosses and stem have a lemon profile (a circle with 45°
- * points toward ±y), so each half's share prints without support.
+ * each side, split by the seam and capped by a helmet disc that twists on (see TWIST), and the
+ * neck stem, split the same way and held in the body's socket. Bosses and stem have a lemon
+ * profile (a circle with 45° points toward ±y), so each half's share prints without support.
  */
 
 const BOARD = DISPLAYS["waveshare-s3-touch-lcd-28"].module;
@@ -39,8 +39,29 @@ export const HEAD_SINK = 3;
 
 /** Side bosses: lemon radius and how far they stand out of the wall. */
 export const BOSS = { radius: 5, length: 5 };
-/** Helmet disc thickness; its bore is the boss profile plus `fit`, `length` + 0.3 deep. */
-export const DISC = { thickness: 7, fit: 0.15 };
+export const DISC = { thickness: 7 };
+/**
+ * Twist lock between each boss and its disc. Each lemon point carries a hook at the boss's
+ * tip: a square turned 45° (`width` half-diagonal) standing `hook` out of the point, flat for
+ * `flat` behind the tip face, then a 45° back face down into the lemon. The disc's bore is
+ * round (`boreFit` over the points), with two keyways the hooks slide down, then a groove
+ * swept along their path as the disc turns `turn` degrees clockwise (seen from outside) to its
+ * stop. The groove's ceiling rises `rise` along the way, so the turn draws the disc onto the
+ * head and its 45° ceiling presses the hooks, and with them the halves, together. `fit` is the
+ * clearance around the hooks everywhere except that ceiling at the stop.
+ */
+export const TWIST = {
+  hook: 1.5,
+  width: 2,
+  flat: 0.8,
+  fit: 0.25,
+  boreFit: 0.2,
+  turn: 70,
+  rise: 0.8,
+};
+/** Smallest disc that keeps 1.6 mm of wall around the groove the hooks turn in. */
+export const MIN_DISC_RADIUS =
+  Math.ceil(2 * (BOSS.radius * Math.SQRT2 + TWIST.hook + TWIST.fit * Math.SQRT2 + 1.6)) / 2;
 /** Neck stem: lemon radius, length below the head, and the socket's clearance. */
 export const STEM = { radius: 7, length: 8, fit: 0.2 };
 /** Posts from the back wall onto the board's standoff tips, with a socket over each tip. */
