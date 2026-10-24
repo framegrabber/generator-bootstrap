@@ -194,7 +194,7 @@ const astronaut: GeneratorDef = {
 
     {
       ...mm("earSize", "Helmet disc radius", "Details", 11.5, 5, 20),
-      help: "The discs snap onto the bosses that hold the head halves together.",
+      help: "The discs cap the bosses that hold the head halves together.",
     },
     { kind: "boolean", key: "chestPatch", label: "Chest patch", group: "Details", default: true },
 

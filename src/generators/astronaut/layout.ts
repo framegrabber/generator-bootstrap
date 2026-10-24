@@ -23,9 +23,9 @@ import type { Params, ValidationIssue } from "../../core/types";
  * on x = 0 and on the screen's visible area. The body rests on z = 0.
  *
  * The head prints as two halves split at `seamY`, held together by the "triangle": a boss on
- * each side, split by the seam and capped by a helmet disc that snaps on (see SNAP), and the
- * neck stem, split the same way and held in the body's socket. Bosses and stem have a lemon
- * profile (a circle with 45° points toward ±y), so each half's share prints without support.
+ * each side, split by the seam and capped by a helmet disc, and the neck stem, split the same
+ * way and held in the body's socket. Bosses and stem have a lemon profile (a circle with 45°
+ * points toward ±y), so each half's share prints without support.
  */
 
 const BOARD = DISPLAYS["waveshare-s3-touch-lcd-28"].module;
@@ -41,16 +41,6 @@ export const HEAD_SINK = 3;
 export const BOSS = { radius: 5, length: 5 };
 /** Helmet disc thickness; its bore is the boss profile plus `fit`, `length` + 0.3 deep. */
 export const DISC = { thickness: 7, fit: 0.15 };
-/**
- * Snap latch on each boss half: the lemon's point becomes a finger, a square turned 45°
- * (`finger` across its diagonal) whose outer faces are the lemon's flanks. A `slot` gap frees
- * it from its half toward the seam (and from the side wall where it passes through), so it
- * bends toward the other half. Its root sits `root` inside the wall, on a `knob` inside the
- * head. Near the tip it carries a catch standing `catch` out of the lemon point, with 45° faces
- * (unsupported in print, and a firm pull releases the disc), which clicks into a groove in the
- * disc's bore.
- */
-export const SNAP = { finger: 3, slot: 0.5, catch: 0.5, root: 2, knob: 4 };
 /** Neck stem: lemon radius, length below the head, and the socket's clearance. */
 export const STEM = { radius: 7, length: 8, fit: 0.2 };
 /** Posts from the back wall onto the board's standoff tips, with a socket over each tip. */

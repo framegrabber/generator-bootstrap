@@ -5,7 +5,7 @@ import { getManifold, withScope, type WasmScope } from "../../../src/core/manifo
 import { validateParams } from "../../../src/core/params";
 import type { Params, Part } from "../../../src/core/types";
 import { findGenerator } from "../../../src/generators";
-import { astronautLayout, BOSS, SNAP, WALL } from "../../../src/generators/astronaut/layout";
+import { astronautLayout, WALL } from "../../../src/generators/astronaut/layout";
 import { buildWith, paramsFor } from "./helpers";
 
 const ID = "astronaut";
@@ -99,75 +99,6 @@ describe("astronaut fit", () => {
       const head = t(wasm.Manifold.union(halves));
       expect(overlap(head, module), "module").toBeLessThan(0.5);
       for (const s of speakers) expect(overlap(head, s), "speaker").toBeLessThan(0.5);
-    });
-  });
-
-  it("snaps the helmet discs onto the bosses", { timeout: 60_000 }, async () => {
-    const result = await buildWith(ID, draft());
-    const wasm = await getManifold();
-    withScope((scope) => {
-      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
-      const solid = (name: string) =>
-        assembledSolid(
-          wasm,
-          scope,
-          result.parts.find((p) => p.name === name)!,
-        );
-      const head = t(wasm.Manifold.union([solid("head-front"), solid("head-back")]));
-      for (const [name, s] of [
-        ["disc-left", -1],
-        ["disc-right", 1],
-      ] as const) {
-        const disc = solid(name);
-        const pulled = (dx: number) =>
-          t(t(disc.translate([s * dx, 0, 0])).intersect(head)).volume();
-        // Seated, the catches rest in their grooves; pulled 1 mm outward (past the 0.2 mm
-        // play), the grooves' ceilings run into both catches, so the disc cannot slide off.
-        expect(pulled(0), `${name} seated`).toBeLessThan(0.5);
-        expect(pulled(1), `${name} pulled`).toBeGreaterThan(1);
-      }
-    });
-  });
-
-  it("frees each latch finger from its half down to its root", { timeout: 60_000 }, async () => {
-    const result = await buildWith(ID, draft());
-    const L = astronautLayout(paramsFor(ID, draft()));
-    const { hw, cz } = L.head;
-    const wasm = await getManifold();
-    // A finger is the lemon point, a square turned 45° with diagonal `finger`, from its root
-    // to the boss tip; its catch adds that square swept `catch` outward over 1 mm plus two
-    // 0.5 mm ramps.
-    const d = SNAP.finger;
-    const from = hw - WALL - SNAP.root + 0.1;
-    const finger = ((d * d) / 2) * (hw + BOSS.length - from) + d * SNAP.catch * 1.5;
-    withScope((scope) => {
-      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
-      for (const [name, y0] of [
-        ["head-front", L.seamY - 9],
-        ["head-back", L.seamY],
-      ] as const) {
-        const part = assembledSolid(
-          wasm,
-          scope,
-          result.parts.find((p) => p.name === name)!,
-        );
-        for (const s of [-1, 1]) {
-          // Everything of this half around the boss, outward of a cut just past the root.
-          const box = t(
-            t(wasm.Manifold.cube([hw + 6 - from, 9, 14])).translate([
-              s > 0 ? from : -hw - 6,
-              y0,
-              cz - 7,
-            ]),
-          );
-          const pieces = t(part.intersect(box))
-            .decompose()
-            .map((p) => t(p).volume())
-            .sort((a, b) => a - b);
-          expect(pieces, `${name} ${s}`).toHaveLength(2);
-          expect(pieces[0], `${name} ${s}`).toBeCloseTo(finger, 1);
-        }
-      }
     });
   });
 });
