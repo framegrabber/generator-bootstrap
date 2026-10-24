@@ -33,6 +33,7 @@ import {
   POST,
   patchBounds,
   patchSdf,
+  SNAP,
   STEM,
   TONGUE,
   USB_OPENING,
@@ -117,6 +118,72 @@ const build: GeneratorBuild = (values, { wasm }) => {
     const bosses = ([-1, 1] as const).map((s) =>
       sweep(lemon(BOSS.radius), sideFrame(s, s * (hw - WALL)), WALL + BOSS.length),
     );
+    // Snap latches: on each side, the lemon point of each half (`end` -1 the front half's,
+    // +1 the back's) is a finger; see SNAP. Positions along the frames below are measured
+    // outward from the outer side face, x = ±hw.
+    const point = BOSS.radius * Math.SQRT2;
+    const d = SNAP.finger;
+    /** Square turned 45°, its diagonal along the lemon's point axis. */
+    const rhombus = (cx: number, half: number) =>
+      t(
+        new CS([
+          [cx + half, 0],
+          [cx, half],
+          [cx - half, 0],
+          [cx, -half],
+        ]),
+      );
+    /** A rhombus whose outer vertex is at `vertex` on the point axis, toward `end`. */
+    const atVertex = (end: 1 | -1, vertex: number, half: number) =>
+      rhombus(end * (vertex - half), half);
+    /**
+     * Hull of `atVertex(end, vertex + offset, half)` at each `[depth, offset]` station: a catch
+     * or groove whose ramps run at 45° when consecutive stations differ by equal amounts.
+     */
+    const ramp = (s: 1 | -1, end: 1 | -1, vertex: number, half: number, stations: number[][]) =>
+      t(
+        t(
+          M.hull(
+            stations.flatMap(([z, offset]) => {
+              const c = end * (vertex + offset - half);
+              return [
+                [c + half, 0, z],
+                [c, half, z],
+                [c - half, 0, z],
+                [c, -half, z],
+              ] satisfies Vec3[];
+            }),
+          ),
+        ).transform(sideFrame(s, s * hw)),
+      );
+    const latches = ([-1, 1] as const).flatMap((s) =>
+      ([-1, 1] as const).map((end) => {
+        const finger = atVertex(end, point, d / 2);
+        const slotHalf = (d + SNAP.slot * Math.SQRT2) / 2;
+        // Toward the seam only inside the head; all round where the finger passes the wall.
+        const seamSlot = t(atVertex(end, point, slotHalf).subtract(finger));
+        const ring = t(
+          rhombus(end * (point - d / 2), d / 2 + SNAP.slot * Math.SQRT2).subtract(finger),
+        );
+        return {
+          knob: sweep(
+            atVertex(end, point, slotHalf + 1.5),
+            sideFrame(s, s * (hw - WALL - SNAP.knob)),
+            SNAP.knob + 0.01,
+          ),
+          cuts: [
+            sweep(seamSlot, sideFrame(s, s * (hw - WALL - SNAP.root)), SNAP.root + 0.02),
+            sweep(ring, sideFrame(s, s * (hw - WALL - 0.01)), WALL + BOSS.length + 1),
+          ],
+          catch: ramp(s, end, point, d / 2, [
+            [BOSS.length, 0],
+            [BOSS.length - 0.5, SNAP.catch],
+            [BOSS.length - 1.5, SNAP.catch],
+            [BOSS.length - 2, 0],
+          ]),
+        };
+      }),
+    );
     const stem = sweep(lemon(STEM.radius), stemFrame(cz - hh - STEM.length), STEM.length + WALL);
     const openings: Manifold[] = [
       k.prismY(k.roundedRect(2 * (view.hx + 0.6), 2 * (view.hz + 0.6), 2.5), -1, WALL + 0.5, cz),
@@ -138,9 +205,17 @@ const build: GeneratorBuild = (values, { wasm }) => {
       ),
     ];
     const head = t(
-      t(M.union([t(outer.subtract(inner)), pocketFrame, ...bosses, stem])).subtract(
-        t(M.union(openings)),
-      ),
+      t(
+        t(
+          M.union([
+            t(outer.subtract(inner)),
+            pocketFrame,
+            ...bosses,
+            ...latches.map((l) => l.knob),
+            stem,
+          ]),
+        ).subtract(t(M.union([...openings, ...latches.flatMap((l) => l.cuts)]))),
+      ).add(t(M.union(latches.map((l) => l.catch)))),
     );
     const [backRaw, frontRaw] = head.splitByPlane([0, 1, 0], L.seamY).map(t);
 
@@ -184,13 +259,26 @@ const build: GeneratorBuild = (values, { wasm }) => {
     );
 
     // ---- Helmet discs: a rounded disc with the boss's profile as its bore --------------
+    // Each bore has a groove at both lemon points, deep end, for the latch catches; its 45°
+    // ceiling prints over the bore, which faces up.
+    const borePoint = (BOSS.radius + DISC.fit) * Math.SQRT2;
+    const boreDepth = BOSS.length + 0.29;
     const discs = ([-1, 1] as const).map((s) => {
       const bore = sweep(
         lemon(BOSS.radius + DISC.fit),
         sideFrame(s, s * (hw - 0.01)),
         BOSS.length + 0.3,
       );
-      return t(mesh(discSdf(L, s), discBounds(L, s)).subtract(bore));
+      const grooves = ([-1, 1] as const).map((end) =>
+        ramp(s, end, borePoint, d, [
+          // Measured from the bore's point, 0.21 out from the boss's, so the ramps sit 0.2 mm
+          // apart along the axis: that much play once snapped.
+          [BOSS.length - 2 + 0.01, 0],
+          [BOSS.length - 1.5 + 0.01, SNAP.catch],
+          [boreDepth, SNAP.catch],
+        ]),
+      );
+      return t(mesh(discSdf(L, s), discBounds(L, s)).subtract(t(M.union([bore, ...grooves]))));
     });
 
     // ---- Body: one piece, with the socket the split stem plugs into --------------------
@@ -341,7 +429,9 @@ function assemblyNotes(L: AstronautLayout): string {
     "   bottom, and plug them and the battery into the board.",
     "3. Close the head: the tongue of head-front slides into head-back, and the four posts",
     "   press the board onto the front.",
-    "4. Push a helmet disc onto each side boss; the discs hold the halves together.",
+    "4. Push a helmet disc onto each side boss until it clicks: the boss's two points are",
+    "   springy latches that catch in the disc. The discs hold the halves together. To open",
+    "   the head, pull the discs off firmly, straight out.",
     "5. Plug the neck stem into the socket on top of the body.",
     "",
     `Buttons: the pin holes on top of the head reach ${buttons} (left to right from`,
