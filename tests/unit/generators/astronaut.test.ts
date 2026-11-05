@@ -295,6 +295,7 @@ describe("astronaut fit", () => {
         // In the recess: clear of the body, but its back on the floor and its rim 0.2 mm from
         // the walls, so a 0.3 mm nudge back, sideways, or up meets the body.
         expect(overlap([0, 0, 0])).toBeLessThan(0.1);
+        expect(t(letters.intersect(body)).volume(), "letters").toBeLessThan(0.1);
         for (const shift of [
           [0, 0.3, 0],
           [0.3, 0, 0],
@@ -304,16 +305,18 @@ describe("astronaut fit", () => {
         ] as [number, number, number][]) {
           expect(overlap(shift), `nudged ${shift.join(",")}`).toBeGreaterThan(0.01);
         }
-        // It stands out of the chest, and the lettering stands on its face, inside its outline.
-        const b = badge.boundingBox();
-        const l = letters.boundingBox();
+        // It stands out of the chest without turning into a slab, and the lettering stands on
+        // its face, inside its outline (both as printed: back on the bed, face up).
         const [chest] = chestSurface(L, [[0, L.patch!.z]]);
-        expect(b.min[1]).toBeLessThan(chest - 0.5);
-        expect(l.max[1]).toBeCloseTo(b.min[1], 3);
+        expect(badge.boundingBox().min[1]).toBeLessThan(chest - 0.5);
+        const b = boundsOf([byName("badge")!.mesh])!;
+        const l = boundsOf([byName("letters")!.mesh])!;
+        expect(b.max[2] - b.min[2]).toBeLessThan(3);
+        expect(l.min[2]).toBeCloseTo(b.max[2], 3);
         expect(l.min[0]).toBeGreaterThan(b.min[0]);
         expect(l.max[0]).toBeLessThan(b.max[0]);
-        expect(l.min[2]).toBeGreaterThan(b.min[2]);
-        expect(l.max[2]).toBeLessThan(b.max[2]);
+        expect(l.min[1]).toBeGreaterThan(b.min[1]);
+        expect(l.max[1]).toBeLessThan(b.max[1]);
       });
     },
   );

@@ -359,12 +359,11 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     let body = solidBody;
     let badge: Manifold | null = null;
     let letters: Manifold | null = null;
+    let badgePose: Mat4 = IDENTITY;
     if (L.patch) {
       const P = L.patch;
       const shape = patchOutline(k, P);
       const { min, max } = shape.bounds();
-      // The chest over the outline's box: the recess is deep enough where the chest lies
-      // furthest back, and the badge stands proud where it lies furthest forward.
       const samples: [number, number][] = [];
       for (let i = 0; i <= 6; i++) {
         for (let j = 0; j <= 6; j++) {
@@ -378,11 +377,32 @@ const build: GeneratorBuild = async (values, { wasm }) => {
       if (ys.some(Number.isNaN)) {
         throw new Error("The chest patch reaches past the chest; widen the upper volume.");
       }
-      const floor = Math.max(...ys) + PATCH.depth;
-      const front = Math.min(...ys) - PATCH.proud;
-      const recess = k.prismY(t(shape.offset(PATCH.fit, "Round", 2, 32)), front - 5, floor, P.z);
+      // The chest leans back (about 22° at the defaults), so the badge lies in a plane fitted
+      // to it, y = y0 + slope · (z - P.z); a badge flat in the face plane came out 9 mm thick.
+      // The recess is deep enough where the chest lies furthest behind that plane, and the
+      // badge stands proud where it lies furthest in front.
+      const y0 = ys.reduce((a, y) => a + y, 0) / ys.length;
+      const slope =
+        samples.reduce((a, [, z], i) => a + (z - P.z) * (ys[i] - y0), 0) /
+        samples.reduce((a, [, z]) => a + (z - P.z) ** 2, 0);
+      const n = Math.sqrt(1 + slope * slope);
+      const up: Vec3 = [0, slope / n, 1 / n];
+      const out: Vec3 = [0, -1 / n, slope / n];
+      const heights = samples.map(([, z], i) => (ys[i] - y0) * out[1] + (z - P.z) * out[2]);
+      const floor = Math.min(...heights) - PATCH.depth;
+      const front = Math.max(...heights) + PATCH.proud;
+      /** The badge's frame `h` out from the fitted plane: x across, y up the chest, z out. */
+      const plane = (h: number) =>
+        frame([0, y0 + h * out[1], P.z + h * out[2]], [1, 0, 0], up, out);
+      const recess = sweep(
+        t(shape.offset(PATCH.fit, "Round", 2, 32)),
+        plane(floor),
+        front - floor + 5,
+      );
       body = t(solidBody.subtract(recess));
-      badge = k.prismY(shape, front, floor, P.z);
+      badge = sweep(shape, plane(floor), front - floor);
+      // Printed on its back.
+      badgePose = invertRigid(plane(floor));
       if (font) {
         // Capitals a share of the badge's height, smaller if the line is too wide.
         const height = max[1] - min[1];
@@ -393,7 +413,7 @@ const build: GeneratorBuild = async (values, { wasm }) => {
         const { min: lo, max: hi } = outline(capHeight).bounds();
         if (hi[0] - lo[0] > room) capHeight *= room / (hi[0] - lo[0]);
         const centred = t(outline(capHeight).translate([0, -capHeight / 2]));
-        letters = k.prismY(centred, front - PATCH.letters, front, P.z);
+        letters = sweep(centred, plane(front), PATCH.letters);
       }
     }
 
@@ -425,7 +445,7 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     add("body", body, L.colors.suit, place(body, IDENTITY));
     if (badge) {
       // Face up, back on the bed.
-      const pose = place(badge, rotationX(-90));
+      const pose = place(badge, badgePose);
       add(letters ? "badge" : "patch", badge, L.colors.patch, pose, letters ? "patch" : undefined);
       if (letters) add("letters", letters, L.colors.letters, pose, "patch");
     }
