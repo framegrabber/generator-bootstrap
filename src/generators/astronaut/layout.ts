@@ -98,6 +98,26 @@ export type FaceRect = { x: number; z: number; hx: number; hz: number };
 /** A superellipsoid: exponent 2 is an ellipsoid, larger exponents approach a box. */
 export type Volume = { center: Vec3; half: Vec3; exponent: number };
 
+export type PatchShape = "rounded" | "circle" | "hexagon" | "shield";
+/**
+ * Chest badge: the recess is at least `depth` deep, `fit` wider than the badge all round; the
+ * badge stands `proud` out of the chest at its highest point; lettering is `letters` tall
+ * with capitals `cap` of the badge's height.
+ */
+export const PATCH = { depth: 1, fit: 0.2, proud: 0.6, letters: 0.8, cap: 0.45 };
+/**
+ * The chest badge: shape, centred at x = 0 and height `z` inside a box of half sizes (hx, hz)
+ * in the face plane, and its lettering (empty for none) in `font`.
+ */
+export type Patch = {
+  shape: PatchShape;
+  z: number;
+  hx: number;
+  hz: number;
+  text: string;
+  font: string;
+};
+
 export type AstronautLayout = {
   head: {
     /** Half width, half height, depth, centre height. */
@@ -142,8 +162,8 @@ export type AstronautLayout = {
   postTip: number;
   /** Speaker footprints on the back wall (face plane), long side vertical. */
   speakers: FaceRect[];
-  patch: boolean;
-  colors: { suit: string; trim: string; patch: string; eyes: string };
+  patch: Patch | null;
+  colors: { suit: string; trim: string; patch: string; letters: string; eyes: string };
   meshEdge: number;
 };
 
@@ -295,11 +315,22 @@ export function astronautLayout(values: Params): AstronautLayout {
     posts,
     postTip,
     speakers,
-    patch: bool(values, "chestPatch"),
+    patch: bool(values, "chestPatch")
+      ? {
+          // A select param's value is one of its options.
+          shape: str(values, "patchShape") as PatchShape,
+          z: 0.61 * top,
+          hx: 0.4 * upper.half[0],
+          hz: 0.11 * top,
+          text: str(values, "patchText").trim(),
+          font: str(values, "patchFont"),
+        }
+      : null,
     colors: {
       suit: str(values, "suitColor"),
       trim: str(values, "trimColor"),
       patch: str(values, "patchColor"),
+      letters: str(values, "patchTextColor"),
       eyes: str(values, "eyeColor"),
     },
     meshEdge: num(values, "meshEdge"),
@@ -538,20 +569,16 @@ export function discSdf(L: AstronautLayout, s: 1 | -1): Sdf {
 }
 
 /**
- * The chest patch: a 1.2 mm shell centred on the body's surface over the upper volume's
- * front, so it stands 0.6 mm proud; build.ts cuts it out of the body so the two colours
- * meet without overlapping.
+ * The body's front surface at each (x, z): the first y inside the body, marching back in
+ * 0.05 mm steps from in front of it. NaN where the line misses the body.
  */
-export function patchSdf(L: AstronautLayout): Sdf {
+export function chestSurface(L: AstronautLayout, points: readonly [number, number][]): number[] {
   const body = bodySdf(L);
-  const { top, upper } = L.body;
-  const front = upper.center[1] - upper.half[1] / 2;
-  return (p) =>
-    Math.max(
-      Math.abs(body(p)) - 0.6,
-      rect2(p[0], p[2], 0, 0.61 * top, 0.4 * upper.half[0], 0.11 * top, 2),
-      p[1] - front,
-    );
+  const { min, max } = bodyBounds(L);
+  return points.map(([x, z]) => {
+    for (let y = min[1] - 1; y < max[1]; y += 0.05) if (body([x, y, z]) <= 0) return y;
+    return Number.NaN;
+  });
 }
 
 // ---- Bounds ------------------------------------------------------------------------------
@@ -598,16 +625,6 @@ export function discBounds(L: AstronautLayout, s: 1 | -1): Box3 {
   const r = L.discRadius;
   const [lo, hi] = s > 0 ? [x0, x1] : [-x1, -x0];
   return { min: [lo, L.seamY - r, L.head.cz - r], max: [hi, L.seamY + r, L.head.cz + r] };
-}
-
-export function patchBounds(L: AstronautLayout): Box3 {
-  const { top, lower, upper, stackBlend } = L.body;
-  // The patch's height can fall on either volume, so reach past both fronts and the bulge.
-  const front = Math.min(span(lower, 1)[0], span(upper, 1)[0]) - stackBlend / 4 - 2;
-  return {
-    min: [-0.4 * upper.half[0] - 2, front, 0.5 * top - 2],
-    max: [0.4 * upper.half[0] + 2, upper.center[1] - upper.half[1] / 2 + 1, 0.72 * top + 2],
-  };
 }
 
 /** The eyes' rectangles in the face, for the stand-in screen. */

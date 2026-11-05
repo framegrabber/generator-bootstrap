@@ -1,5 +1,10 @@
-import type { GeneratorDef, NumberParam } from "../../core/types";
+import type { GeneratorDef, NumberParam, Params } from "../../core/types";
+import { DEFAULT_FONT } from "../../fonts/bundled";
 import { astronautLayout, MIN_DISC_RADIUS, MIN_HEAD_DEPTH, validateLayout } from "./layout";
+
+const hasPatch = (values: Params) => values.chestPatch === true;
+const hasLettering = (values: Params) =>
+  hasPatch(values) && typeof values.patchText === "string" && values.patchText.trim() !== "";
 
 const mm = (
   key: string,
@@ -196,7 +201,47 @@ const astronaut: GeneratorDef = {
       ...mm("earSize", "Helmet disc radius", "Details", 11.5, MIN_DISC_RADIUS, 20),
       help: "The discs twist onto the bosses and hold the head halves together.",
     },
-    { kind: "boolean", key: "chestPatch", label: "Chest patch", group: "Details", default: true },
+
+    {
+      kind: "boolean",
+      key: "chestPatch",
+      label: "Chest patch",
+      group: "Chest patch",
+      default: true,
+      help: "A badge printed on its own and glued into a recess in the chest.",
+    },
+    {
+      kind: "select",
+      key: "patchShape",
+      label: "Shape",
+      group: "Chest patch",
+      default: "rounded",
+      options: [
+        { value: "rounded", label: "Rounded rectangle" },
+        { value: "circle", label: "Circle" },
+        { value: "hexagon", label: "Hexagon" },
+        { value: "shield", label: "Shield" },
+      ],
+      visibleWhen: hasPatch,
+    },
+    {
+      kind: "text",
+      key: "patchText",
+      label: "Lettering",
+      group: "Chest patch",
+      default: "",
+      maxLength: 6,
+      help: "Raised in its own colour; leave empty for a plain badge.",
+      visibleWhen: hasPatch,
+    },
+    {
+      kind: "font",
+      key: "patchFont",
+      label: "Font",
+      group: "Chest patch",
+      default: DEFAULT_FONT,
+      visibleWhen: hasLettering,
+    },
 
     { kind: "color", key: "suitColor", label: "Suit", group: "Colours", default: "#f1f1ee" },
     {
@@ -212,6 +257,15 @@ const astronaut: GeneratorDef = {
       label: "Chest patch",
       group: "Colours",
       default: "#3a88fe",
+      visibleWhen: hasPatch,
+    },
+    {
+      kind: "color",
+      key: "patchTextColor",
+      label: "Lettering",
+      group: "Colours",
+      default: "#ffffff",
+      visibleWhen: hasLettering,
     },
     { kind: "color", key: "eyeColor", label: "Eyes", group: "Colours", default: "#19d3ff" },
 

@@ -5,7 +5,12 @@ import { getManifold, withScope, type WasmScope } from "../../../src/core/manifo
 import { validateParams } from "../../../src/core/params";
 import type { Params, Part } from "../../../src/core/types";
 import { findGenerator } from "../../../src/generators";
-import { astronautLayout, TWIST, WALL } from "../../../src/generators/astronaut/layout";
+import {
+  astronautLayout,
+  chestSurface,
+  TWIST,
+  WALL,
+} from "../../../src/generators/astronaut/layout";
 import { buildWith, paramsFor } from "./helpers";
 
 const ID = "astronaut";
@@ -170,10 +175,8 @@ describe("astronaut fit", () => {
   });
 
   it("twists the head onto the body and locks it", { timeout: 60_000 }, async () => {
-    // Without the patch the body is one part.
-    const values = draft({ chestPatch: false });
-    const result = await buildWith(ID, values);
-    const L = astronautLayout(paramsFor(ID, values));
+    const result = await buildWith(ID, draft());
+    const L = astronautLayout(paramsFor(ID, draft()));
     const wasm = await getManifold();
     withScope((scope) => {
       const t = <T extends { delete(): void }>(x: T) => scope.track(x);
@@ -205,6 +208,49 @@ describe("astronaut fit", () => {
       expect(overlap(TWIST.turn / 2, TWIST.rise / 2 + 1), "pulled mid-turn").toBeGreaterThan(2);
     });
   });
+
+  it.each(["rounded", "circle", "hexagon", "shield"])(
+    "seats a %s badge in its recess, lettering on its face",
+    { timeout: 30_000 },
+    async (patchShape) => {
+      const values = draft({ patchShape, patchText: "FR" });
+      const result = await buildWith(ID, values);
+      const L = astronautLayout(paramsFor(ID, values));
+      const byName = (name: string) => result.parts.find((p) => p.name === name);
+      expect(byName("badge")?.assembly).toBe("patch");
+      expect(byName("letters")?.assembly).toBe("patch");
+      const wasm = await getManifold();
+      withScope((scope) => {
+        const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+        const solid = (name: string) => assembledSolid(wasm, scope, byName(name)!);
+        const [body, badge, letters] = ["body", "badge", "letters"].map(solid);
+        const overlap = (shift: [number, number, number]) =>
+          t(t(badge.translate(shift)).intersect(body)).volume();
+        // In the recess: clear of the body, but its back on the floor and its rim 0.2 mm from
+        // the walls, so a 0.3 mm nudge back, sideways, or up meets the body.
+        expect(overlap([0, 0, 0])).toBeLessThan(0.1);
+        for (const shift of [
+          [0, 0.3, 0],
+          [0.3, 0, 0],
+          [-0.3, 0, 0],
+          [0, 0, 0.3],
+          [0, 0, -0.3],
+        ] as [number, number, number][]) {
+          expect(overlap(shift), `nudged ${shift.join(",")}`).toBeGreaterThan(0.01);
+        }
+        // It stands out of the chest, and the lettering stands on its face, inside its outline.
+        const b = badge.boundingBox();
+        const l = letters.boundingBox();
+        const [chest] = chestSurface(L, [[0, L.patch!.z]]);
+        expect(b.min[1]).toBeLessThan(chest - 0.5);
+        expect(l.max[1]).toBeCloseTo(b.min[1], 3);
+        expect(l.min[0]).toBeGreaterThan(b.min[0]);
+        expect(l.max[0]).toBeLessThan(b.max[0]);
+        expect(l.min[2]).toBeGreaterThan(b.min[2]);
+        expect(l.max[2]).toBeLessThan(b.max[2]);
+      });
+    },
+  );
 });
 
 /** A part as a Manifold in the assembled frame. */

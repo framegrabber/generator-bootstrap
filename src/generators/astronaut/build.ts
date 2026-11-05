@@ -1,5 +1,5 @@
 import type { CrossSection, Manifold } from "manifold-3d";
-import { tools } from "../../characters/assemble";
+import { tools, type Tools } from "../../characters/assemble";
 import { solidFromSdf } from "../../core/geom";
 import { meshFromManifold, withScope } from "../../core/manifold";
 import {
@@ -13,7 +13,9 @@ import {
 } from "../../core/mat4";
 import type { Vec3 } from "../../core/bounds";
 import type { Box3, Sdf } from "../../core/sdf";
+import { textOutline } from "../../core/text";
 import type { CutPlane, GeneratorBuild, Part, StandIn } from "../../core/types";
+import { loadFont } from "../../fonts/load";
 import {
   astronautLayout,
   BOSS,
@@ -30,23 +32,59 @@ import {
   PIN_HOLE,
   POCKET,
   POST,
-  patchBounds,
-  patchSdf,
+  PATCH,
+  chestSurface,
   NECK,
   TONGUE,
   TWIST,
   USB_OPENING,
   WALL,
   type AstronautLayout,
+  type Patch,
+  type PatchShape,
 } from "./layout";
 
 /** Gap between parts on the print bed. */
 const LAYOUT_GAP = 10;
 /** Pieces smaller than this are meshing crumbs, not parts of the model. */
 const MIN_PIECE_VOLUME = 1;
+/** Share of each badge shape's width the lettering may fill, so it stays clear of the rim. */
+const LETTER_WIDTH: Record<PatchShape, number> = {
+  rounded: 0.85,
+  circle: 0.75,
+  hexagon: 0.7,
+  shield: 0.8,
+};
+
+/** The badge's outline in the face plane, centred on its box (half sizes hx, hz). */
+function patchOutline({ t, CS, roundedRect }: Tools, { shape, hx, hz }: Patch) {
+  const r = Math.sqrt(hx * hz);
+  switch (shape) {
+    case "rounded":
+      return roundedRect(2 * hx, 2 * hz, 2);
+    case "circle":
+      return t(CS.circle(r, 64));
+    case "hexagon":
+      // Points left and right, corners rounded by 1 mm.
+      return t(t(CS.circle(1.1 * r - 1, 6)).offset(1, "Round", 2, 32));
+    case "shield": {
+      // Flat top, straight sides, a point at the bottom; corners rounded by 1.5 mm.
+      const pentagon = t(
+        new CS([
+          [-hx, 1.1 * hz],
+          [-hx, -0.15 * hz],
+          [0, -1.15 * hz],
+          [hx, -0.15 * hz],
+          [hx, 1.1 * hz],
+        ]),
+      );
+      return t(t(pentagon.offset(-1.5, "Round", 2, 32)).offset(1.5, "Round", 2, 32));
+    }
+  }
+}
 
 /**
- * The printable astronaut: body (with the chest patch printed in place), the head's front and
+ * The printable astronaut: body, chest badge (with its lettering), the head's front and
  * back halves, and two helmet discs, each in its print pose and laid out along x. The screen
  * and eyes are assembled-view stand-ins.
  *
@@ -54,8 +92,9 @@ const MIN_PIECE_VOLUME = 1;
  * board pocket, USB-C opening, pin holes, bosses, neck, tongue, posts, speaker fences,
  * grille, socket) is an exact Manifold solid, so clearances hold at any mesh detail.
  */
-const build: GeneratorBuild = (values, { wasm }) => {
+const build: GeneratorBuild = async (values, { wasm }) => {
   const L = astronautLayout(values);
+  const font = L.patch?.text ? await loadFont(L.patch.font) : null;
   return withScope((scope) => {
     const k = tools(wasm, scope);
     const { t, M, CS, geom } = k;
@@ -271,11 +310,51 @@ const build: GeneratorBuild = (values, { wasm }) => {
     );
 
     // ---- Body: one piece, with the socket the neck twists into -------------------------
-    const patch = L.patch ? mesh(patchSdf(L), patchBounds(L)) : null;
     const solidBody = t(
       mesh(bodySdf(L), bodyBounds(L)).subtract(twistBore(r, NECK.length, neckTip)),
     );
-    const body = patch ? t(solidBody.subtract(patch)) : solidBody;
+
+    // ---- Chest patch: a flat badge glued into a flat-floored recess ---------------------
+    let body = solidBody;
+    let badge: Manifold | null = null;
+    let letters: Manifold | null = null;
+    if (L.patch) {
+      const P = L.patch;
+      const shape = patchOutline(k, P);
+      const { min, max } = shape.bounds();
+      // The chest over the outline's box: the recess is deep enough where the chest lies
+      // furthest back, and the badge stands proud where it lies furthest forward.
+      const samples: [number, number][] = [];
+      for (let i = 0; i <= 6; i++) {
+        for (let j = 0; j <= 6; j++) {
+          samples.push([
+            min[0] + ((max[0] - min[0]) * i) / 6,
+            P.z + min[1] + ((max[1] - min[1]) * j) / 6,
+          ]);
+        }
+      }
+      const ys = chestSurface(L, samples);
+      if (ys.some(Number.isNaN)) {
+        throw new Error("The chest patch reaches past the chest; widen the upper volume.");
+      }
+      const floor = Math.max(...ys) + PATCH.depth;
+      const front = Math.min(...ys) - PATCH.proud;
+      const recess = k.prismY(t(shape.offset(PATCH.fit, "Round", 2, 32)), front - 5, floor, P.z);
+      body = t(solidBody.subtract(recess));
+      badge = k.prismY(shape, front, floor, P.z);
+      if (font) {
+        // Capitals a share of the badge's height, smaller if the line is too wide.
+        const height = max[1] - min[1];
+        const room = LETTER_WIDTH[P.shape] * (max[0] - min[0]);
+        const outline = (capHeight: number) =>
+          textOutline({ wasm, scope }, font, { text: P.text, capHeight, align: "center" });
+        let capHeight = PATCH.cap * height;
+        const { min: lo, max: hi } = outline(capHeight).bounds();
+        if (hi[0] - lo[0] > room) capHeight *= room / (hi[0] - lo[0]);
+        const centred = t(outline(capHeight).translate([0, -capHeight / 2]));
+        letters = k.prismY(centred, front - PATCH.letters, front, P.z);
+      }
+    }
 
     // ---- Print layout: side by side along x, each resting on z = 0 ----------------------
     let cursor = 0;
@@ -302,9 +381,13 @@ const build: GeneratorBuild = (values, { wasm }) => {
     };
 
     onePiece(body, "body");
-    const bodyPose = place(body, IDENTITY);
-    add(patch ? "suit" : "body", body, L.colors.suit, bodyPose, patch ? "body" : undefined);
-    if (patch) add("patch", patch, L.colors.patch, bodyPose, "body");
+    add("body", body, L.colors.suit, place(body, IDENTITY));
+    if (badge) {
+      // Face up, back on the bed.
+      const pose = place(badge, rotationX(-90));
+      add(letters ? "badge" : "patch", badge, L.colors.patch, pose, letters ? "patch" : undefined);
+      if (letters) add("letters", letters, L.colors.letters, pose, "patch");
+    }
 
     onePiece(front, "head's front half");
     // Face down: the flat face on the bed, the seam up.
@@ -395,7 +478,14 @@ function seamPlane(L: AstronautLayout): CutPlane {
 
 function assemblyNotes(L: AstronautLayout): string {
   const buttons = L.pinHoles.map((h) => h.name).join(", ");
-  const body = L.patch ? "body (suit and patch, printed together in two colours)" : "body";
+  const badge = L.patch?.text
+    ? ["- patch-badge with patch-letters: face up, printed together in two colours."]
+    : L.patch
+      ? ["- patch: face up."]
+      : [];
+  const glue = L.patch
+    ? ["6. Glue the chest badge into the recess on the chest, its flat back on the floor."]
+    : [];
   return [
     "Screen astronaut: printing and assembly",
     "",
@@ -403,7 +493,8 @@ function assemblyNotes(L: AstronautLayout): string {
     "(about 5 x 20 x 30 mm), and a USB-C cable.",
     "",
     "Print orientation (already set in the files):",
-    `- ${body}: standing on its base.`,
+    "- body: standing on its base.",
+    ...badge,
     "- head-front: face down. head-back: back down, seam up.",
     "- disc-left, disc-right: outer face down, bore up.",
     "No supports are needed; the bosses and the neck have 45-degree points for that.",
@@ -419,9 +510,10 @@ function assemblyNotes(L: AstronautLayout): string {
     "   the hooks on the boss's points, push it on as far as it goes, and turn it clockwise",
     `   (seen from that side) about ${TWIST.turn} degrees until it stops. The turn draws the`,
     "   disc tight and clamps the halves together; turn it back to open the head.",
-    "5. Set the head on the body turned about 70 degrees anticlockwise (seen from above), so",
-    "   the notches in the socket line up with the hooks on the neck, push it down, and turn",
-    "   it clockwise until it faces forward and stops.",
+    `5. Set the head on the body turned about ${TWIST.turn} degrees anticlockwise (seen from`,
+    "   above), so the notches in the socket line up with the hooks on the neck, push it",
+    "   down, and turn it clockwise until it faces forward and stops.",
+    ...glue,
     "",
     `Buttons: the pin holes on top of the head reach ${buttons} (left to right from`,
     "the middle); press them with a straightened paperclip.",
