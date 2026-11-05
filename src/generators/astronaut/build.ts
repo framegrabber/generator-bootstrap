@@ -25,7 +25,6 @@ import {
   eyeRects,
   FENCE,
   GRILLE,
-  HEAD_SINK,
   headBounds,
   headSdf,
   PIN_HOLE,
@@ -33,7 +32,7 @@ import {
   POST,
   patchBounds,
   patchSdf,
-  STEM,
+  NECK,
   TONGUE,
   TWIST,
   USB_OPENING,
@@ -52,7 +51,7 @@ const MIN_PIECE_VOLUME = 1;
  * and eyes are assembled-view stand-ins.
  *
  * Curved surfaces are meshed from the layout's distance functions; every fitting (window,
- * board pocket, USB-C opening, pin holes, bosses, stem, tongue, posts, speaker fences,
+ * board pocket, USB-C opening, pin holes, bosses, neck, tongue, posts, speaker fences,
  * grille, socket) is an exact Manifold solid, so clearances hold at any mesh detail.
  */
 const build: GeneratorBuild = (values, { wasm }) => {
@@ -89,8 +88,9 @@ const build: GeneratorBuild = (values, { wasm }) => {
     /** A side boss's frame: lemon points along ±y, swept outward from x = `x` on side `s`. */
     const sideFrame = (s: 1 | -1, x: number): Mat4 =>
       frame([x, L.seamY, cz], [0, 1, 0], [0, 0, s], [s, 0, 0]);
-    /** The stem's frame: lemon points along ±y, swept up from z = `z`. */
-    const stemFrame = (z: number): Mat4 => frame([0, L.seamY, z], [0, 1, 0], [-1, 0, 0], [0, 0, 1]);
+    /** The neck's frame: hooks along ±y, swept down from z = `z`. */
+    const neckFrame = (z: number): Mat4 =>
+      frame([L.neck.x, L.neck.y, z], [0, 1, 0], [1, 0, 0], [0, 0, -1]);
     const outline = k.roundedRect(2 * hw, 2 * hh, corner);
     const ring = (outer: number, inner: number) =>
       t(
@@ -115,21 +115,23 @@ const build: GeneratorBuild = (values, { wasm }) => {
       WALL + POCKET.depth,
       cz,
     );
-    // Twist-lock hooks on each boss, one on each lemon point (`end` -1 on the front half, +1
-    // on the back); see TWIST. Their frame starts at the outer side face, z outward.
-    const point = BOSS.radius * Math.SQRT2;
+    // Twist-lock hooks, one on each end of a profile's ±x axis (`end` -1 and +1), `point` from
+    // the axis; see TWIST. Their frame starts at the face the boss or neck leaves, z outward,
+    // and the profile stands `length` out of it.
+    const bossPoint = BOSS.radius * Math.SQRT2;
     const tipFrame = (s: 1 | -1) => sideFrame(s, s * hw);
+    const neckTip = neckFrame(cz - hh);
     /** A hook grown by `fit` all round: a hull of 45° squares along the point axis. */
-    const hook = (end: 1 | -1, fit: number) => {
+    const hook = (point: number, length: number, end: 1 | -1, fit: number) => {
       const half = TWIST.width + fit * Math.SQRT2;
       const back = TWIST.hook + 0.5;
       return t(
         M.hull(
           (
             [
-              [BOSS.length + fit, 0],
-              [BOSS.length - TWIST.flat, 0],
-              [BOSS.length - TWIST.flat - back, back],
+              [length + fit, 0],
+              [length - TWIST.flat, 0],
+              [length - TWIST.flat - back, back],
             ] as const
           ).flatMap(([z, inward]) => {
             const c = end * (point + TWIST.hook - TWIST.width - inward);
@@ -143,15 +145,58 @@ const build: GeneratorBuild = (values, { wasm }) => {
         ),
       );
     };
+    const hooks = (point: number, length: number, place: Mat4) =>
+      ([-1, 1] as const).map((end) => t(hook(point, length, end, 0).transform(place)));
+    // The bore that takes those hooks, in the same frame. It is round so the profile can turn
+    // in it. Each hook slides down a keyway, then the bore's part turns clockwise (seen from
+    // outside): the hook's path relative to it runs from -turn to 0 degrees, its back face
+    // rising `rise` toward the face on the way and meeting the groove's ceiling at the stop
+    // (its `fit` taken back there along the 45° face).
+    const lockShift = TWIST.fit * Math.SQRT2;
+    const STEPS = 14;
+    const twistBore = (point: number, length: number, place: Mat4) => {
+      const depth = length + TWIST.fit + lockShift + 0.05;
+      const cylinder = t(t(CS.circle(point + TWIST.boreFit, 64)).extrude(depth + 0.01));
+      const cuts = [t(cylinder.translate([0, 0, -0.01]))];
+      for (const end of [-1, 1] as const) {
+        const grown = hook(point, length, end, TWIST.fit);
+        const at = (i: number) => {
+          const angle = -TWIST.turn * (1 - i / STEPS);
+          const shift = lockShift + (TWIST.rise * angle) / TWIST.turn;
+          return t(t(grown.rotate([0, 0, angle])).translate([0, 0, shift]));
+        };
+        const entry = at(0);
+        cuts.push(t(M.hull([entry, t(entry.translate([0, 0, -length - 3]))])));
+        for (let i = 0; i < STEPS; i++) cuts.push(t(M.hull([at(i), at(i + 1)])));
+      }
+      return t(t(M.union(cuts)).transform(place));
+    };
     const bosses = ([-1, 1] as const).map((s) =>
       t(
         M.union([
           sweep(lemon(BOSS.radius), sideFrame(s, s * (hw - WALL)), WALL + BOSS.length),
-          ...([-1, 1] as const).map((end) => t(hook(end, 0).transform(tipFrame(s)))),
+          ...hooks(bossPoint, BOSS.length, tipFrame(s)),
         ]),
       ),
     );
-    const stem = sweep(lemon(STEM.radius), stemFrame(cz - hh - STEM.length), STEM.length + WALL);
+    // The neck: a circle 0.5 mm under its radius with a 45° point toward the face (-x in its
+    // frame), clipped to the radius so it turns in a round bore; the clip leaves a 0.6 mm sag
+    // the width of a short bridge. It runs from inside the bottom wall down to its tip.
+    const r = L.neck.radius;
+    const neckProfile = t(
+      t(
+        CS.hull([
+          t(CS.circle(r - 0.5, 64)),
+          t(t(CS.circle(0.01, 4)).translate([-(r - 0.5) * Math.SQRT2, 0])),
+        ]),
+      ).intersect(t(CS.circle(r, 64))),
+    );
+    const neck = t(
+      M.union([
+        sweep(neckProfile, neckFrame(cz - hh + WALL), WALL + NECK.length),
+        ...hooks(r, NECK.length, neckTip),
+      ]),
+    );
     const openings: Manifold[] = [
       k.prismY(k.roundedRect(2 * (view.hx + 0.6), 2 * (view.hz + 0.6), 2.5), -1, WALL + 0.5, cz),
       // The module is as wide as the inside, so its pocket shaves the wall where it is tight.
@@ -172,9 +217,7 @@ const build: GeneratorBuild = (values, { wasm }) => {
       ),
     ];
     const head = t(
-      t(M.union([t(outer.subtract(inner)), pocketFrame, ...bosses, stem])).subtract(
-        t(M.union(openings)),
-      ),
+      t(M.union([t(outer.subtract(inner)), pocketFrame, ...bosses])).subtract(t(M.union(openings))),
     );
     const [backRaw, frontRaw] = head.splitByPlane([0, 1, 0], L.seamY).map(t);
 
@@ -184,7 +227,8 @@ const build: GeneratorBuild = (values, { wasm }) => {
       L.seamY + TONGUE.height,
       cz,
     );
-    const front = t(M.union([frontRaw, tongue]));
+    // The neck joins after the split: its hooks stand past the seam below the head.
+    const front = t(M.union([frontRaw, tongue, neck]));
 
     const groove = k.prismY(
       ring(TONGUE.outer - TONGUE.fit, TONGUE.inner + TONGUE.fit),
@@ -218,40 +262,19 @@ const build: GeneratorBuild = (values, { wasm }) => {
     );
 
     // ---- Helmet discs: a rounded disc with a twist-lock bore --------------------------
-    // The bore is round so the disc can turn on the lemon. Each hook slides down a keyway,
-    // then the disc turns clockwise: the hook's path relative to the disc runs from -turn to
-    // 0 degrees, its back face rising `rise` toward the head on the way and meeting the
-    // groove's ceiling at the stop (its `fit` taken back there along the 45° face).
-    const lockShift = TWIST.fit * Math.SQRT2;
-    const boreDepth = BOSS.length + TWIST.fit + lockShift + 0.05;
-    const STEPS = 14;
-    const discs = ([-1, 1] as const).map((s) => {
-      const cylinder = t(t(CS.circle(point + TWIST.boreFit, 64)).extrude(boreDepth + 0.01));
-      const cuts = [t(cylinder.translate([0, 0, -0.01]))];
-      for (const end of [-1, 1] as const) {
-        const grown = hook(end, TWIST.fit);
-        const at = (i: number) => {
-          const angle = -TWIST.turn * (1 - i / STEPS);
-          const shift = lockShift + (TWIST.rise * angle) / TWIST.turn;
-          return t(t(grown.rotate([0, 0, angle])).translate([0, 0, shift]));
-        };
-        const entry = at(0);
-        cuts.push(t(M.hull([entry, t(entry.translate([0, 0, -BOSS.length - 3]))])));
-        for (let i = 0; i < STEPS; i++) cuts.push(t(M.hull([at(i), at(i + 1)])));
-      }
-      const bore = t(t(M.union(cuts)).transform(tipFrame(s)));
-      return t(mesh(discSdf(L, s), discBounds(L, s)).subtract(bore));
-    });
-
-    // ---- Body: one piece, with the socket the split stem plugs into --------------------
-    const socketBottom = L.body.top - HEAD_SINK - STEM.length - 0.5;
-    const socket = sweep(
-      lemon(STEM.radius + STEM.fit),
-      stemFrame(socketBottom),
-      L.body.top + 1 - socketBottom,
+    const discs = ([-1, 1] as const).map((s) =>
+      t(
+        mesh(discSdf(L, s), discBounds(L, s)).subtract(
+          twistBore(bossPoint, BOSS.length, tipFrame(s)),
+        ),
+      ),
     );
+
+    // ---- Body: one piece, with the socket the neck twists into -------------------------
     const patch = L.patch ? mesh(patchSdf(L), patchBounds(L)) : null;
-    const solidBody = t(mesh(bodySdf(L), bodyBounds(L)).subtract(socket));
+    const solidBody = t(
+      mesh(bodySdf(L), bodyBounds(L)).subtract(twistBore(r, NECK.length, neckTip)),
+    );
     const body = patch ? t(solidBody.subtract(patch)) : solidBody;
 
     // ---- Print layout: side by side along x, each resting on z = 0 ----------------------
@@ -359,7 +382,7 @@ function grillePoints(hx: number, hz: number): [number, number][] {
 function seamPlane(L: AstronautLayout): CutPlane {
   const { hw, hh, cz } = L.head;
   const [x0, x1] = [-hw - DISC.thickness - 2, hw + DISC.thickness + 2];
-  const [z0, z1] = [cz - hh - STEM.length - 1, cz + hh + 2];
+  const [z0, z1] = [cz - hh - NECK.length - 1, cz + hh + 2];
   const y = L.seamY;
   const corners: [Vec3, Vec3, Vec3, Vec3] = [
     [x0, y, z0],
@@ -383,7 +406,7 @@ function assemblyNotes(L: AstronautLayout): string {
     `- ${body}: standing on its base.`,
     "- head-front: face down. head-back: back down, seam up.",
     "- disc-left, disc-right: outer face down, bore up.",
-    "No supports are needed; the bosses and the neck stem have 45-degree points for that.",
+    "No supports are needed; the bosses and the neck have 45-degree points for that.",
     "",
     "Assembly:",
     "1. Flash the board. Lay it face down in head-front, glass in the shallow pocket, USB-C",
@@ -396,7 +419,9 @@ function assemblyNotes(L: AstronautLayout): string {
     "   the hooks on the boss's points, push it on as far as it goes, and turn it clockwise",
     `   (seen from that side) about ${TWIST.turn} degrees until it stops. The turn draws the`,
     "   disc tight and clamps the halves together; turn it back to open the head.",
-    "5. Plug the neck stem into the socket on top of the body.",
+    "5. Set the head on the body turned about 70 degrees anticlockwise (seen from above), so",
+    "   the notches in the socket line up with the hooks on the neck, push it down, and turn",
+    "   it clockwise until it faces forward and stops.",
     "",
     `Buttons: the pin holes on top of the head reach ${buttons} (left to right from`,
     "the middle); press them with a straightened paperclip.",

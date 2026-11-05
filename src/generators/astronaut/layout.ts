@@ -22,10 +22,10 @@ import type { Params, ValidationIssue } from "../../core/types";
  * Frame: Z up, face toward -Y, millimetres. The face (head front) is the plane y = 0, centred
  * on x = 0 and on the screen's visible area. The body rests on z = 0.
  *
- * The head prints as two halves split at `seamY`, held together by the "triangle": a boss on
- * each side, split by the seam and capped by a helmet disc that twists on (see TWIST), and the
- * neck stem, split the same way and held in the body's socket. Bosses and stem have a lemon
+ * The head prints as two halves split at `seamY`, held together by a boss on each side, split
+ * by the seam and capped by a helmet disc that twists on (see TWIST). The bosses have a lemon
  * profile (a circle with 45° points toward ±y), so each half's share prints without support.
+ * The neck stands under the front half and twists into the body's socket the same way.
  */
 
 const BOARD = DISPLAYS["waveshare-s3-touch-lcd-28"].module;
@@ -34,8 +34,6 @@ const BATTERY = BATTERIES["502030"].size;
 export const WALL = 2.5;
 /** Depth of the flat front rim before the back starts rounding. */
 const RIM = 8;
-/** How far the head sinks into the top of the body. */
-export const HEAD_SINK = 3;
 
 /** Side bosses: lemon radius and how far they stand out of the wall. */
 export const BOSS = { radius: 5, length: 5 };
@@ -59,11 +57,19 @@ export const TWIST = {
   turn: 70,
   rise: 0.8,
 };
-/** Smallest disc that keeps 1.6 mm of wall around the groove the hooks turn in. */
+/** Wall kept round each groove the hooks turn in, in the discs and in the body. */
+export const LOCK_WALL = 1.6;
+/** Outer radius of that groove, for hooks standing on a profile `point` from the axis. */
+export const grooveRadius = (point: number) => point + TWIST.hook + TWIST.fit * Math.SQRT2;
+/** Smallest disc that keeps its wall around the groove. */
 export const MIN_DISC_RADIUS =
-  Math.ceil(2 * (BOSS.radius * Math.SQRT2 + TWIST.hook + TWIST.fit * Math.SQRT2 + 1.6)) / 2;
-/** Neck stem: lemon radius, length below the head, and the socket's clearance. */
-export const STEM = { radius: 7, length: 8, fit: 0.2 };
+  Math.ceil(2 * (grooveRadius(BOSS.radius * Math.SQRT2) + LOCK_WALL)) / 2;
+/**
+ * Neck under the head's front half: radius and length below the head. Round with one 45°
+ * point toward the face, cut flat at the radius: the point faces the bed when the front half
+ * prints face down. Hooks on its front and back twist it into the body's socket (see TWIST).
+ */
+export const NECK = { radius: 7, length: 8 };
 /** Posts from the back wall onto the board's standoff tips, with a socket over each tip. */
 export const POST = { radius: 3.8, socket: 3.05, socketDepth: 1.5 };
 /** Seam tongue on the front half: inset from the outside, and height into the back half. */
@@ -125,6 +131,8 @@ export type AstronautLayout = {
   legs: { hip: Vec3; toe: Vec3; width: number; height: number; radius: number };
   /** Helmet disc radius; the discs sit on the seam at the head's sides, centred in height. */
   discRadius: number;
+  /** Neck axis (x, y) under the head's front half, and its radius. */
+  neck: { x: number; y: number; radius: number };
   /** USB-C opening centre on the right side. */
   usb: { y: number; z: number };
   /** Pin holes to the board's buttons, straight up through the top. */
@@ -185,7 +193,8 @@ export function astronautLayout(values: Params): AstronautLayout {
   const lower = volume("lower", -0.25 * lowerTop, lowerTop);
   const upper = volume("upper", upperCenter - upperHeight / 2, upperCenter + upperHeight / 2);
   const top = upperCenter + 0.4 * upperHeight;
-  const cz = top - HEAD_SINK + hh;
+  // The head rests on the flat top, so it can turn on its neck to lock.
+  const cz = top + hh;
 
   const armThickness = num(values, "armThickness");
   const armWidth = num(values, "armWidth");
@@ -224,6 +233,8 @@ export function astronautLayout(values: Params): AstronautLayout {
   // The seam goes through the middle of the head, but far enough back that the right disc
   // clears the USB-C opening in front of it.
   const seamY = Math.max(depth * 0.45, usb.y + USB_OPENING.short / 2 + 1.5 + discRadius);
+  // The neck stands as far back as the front half's bottom allows, over the torso's middle.
+  const neck = { x: 0, y: seamY - NECK.radius - 0.5, radius: NECK.radius };
   const pinHoles = (BOARD.buttons ?? []).map((b) => ({
     name: b.name,
     x: b.at[1],
@@ -278,6 +289,7 @@ export function astronautLayout(values: Params): AstronautLayout {
       radius: limbRound("legRoundness", legWidth, legHeight),
     },
     discRadius,
+    neck,
     usb,
     pinHoles,
     posts,
@@ -352,19 +364,17 @@ export function validateLayout(L: AstronautLayout): ValidationIssue[] {
 }
 
 /**
- * Whether the neck socket, with 2 mm of wall, lies inside the torso from its bottom up to its
- * rim, the floor of the saddle the head sits in.
+ * Whether the neck socket, its groove plus `LOCK_WALL`, lies inside the torso from below the
+ * neck's tip up to the flat top.
  */
 function socketFits(L: AstronautLayout): boolean {
   const torso = torsoSdf(L);
-  const r = STEM.radius + STEM.fit + 2;
-  const rim = L.body.top - HEAD_SINK;
-  for (const z of [rim - STEM.length - 0.5, rim - 0.5]) {
+  const r = grooveRadius(L.neck.radius) + LOCK_WALL;
+  const { top } = L.body;
+  for (const z of [top - NECK.length - 1, top - 0.5]) {
     for (let i = 0; i < 24; i++) {
       const a = (i / 24) * 2 * Math.PI;
-      // The lemon's points reach r·√2 along y.
-      const ry = Math.abs(Math.cos(a)) > 0.7 ? r * Math.SQRT2 : r;
-      const p: Vec3 = [r * Math.sin(a), L.seamY + ry * Math.cos(a), z];
+      const p: Vec3 = [L.neck.x + r * Math.sin(a), L.neck.y + r * Math.cos(a), z];
       if (torso(p) > 0) return false;
     }
   }
@@ -485,8 +495,8 @@ export function torsoConnected(L: AstronautLayout): boolean {
 }
 
 /**
- * Torso, arms, and legs, flat at the base, with the head's bottom pressed into the top (0.3 mm
- * clear of it). The neck socket is cut exactly in build.ts.
+ * Torso, arms, and legs, flat at the base and at the top the head rests on. The neck socket is
+ * cut exactly in build.ts.
  */
 export function bodySdf(L: AstronautLayout): Sdf {
   const { top, blend } = L.body;
@@ -512,11 +522,10 @@ export function bodySdf(L: AstronautLayout): Sdf {
       [0, 0, 1],
     ),
   );
-  const head = headSdf(L);
   return (p) => {
     let d = smoothUnion(torso(p), arm(p), blend);
     d = smoothUnion(d, leg(p), blend);
-    return Math.max(d, -p[2], p[2] - top, -(head(p) - 0.3));
+    return Math.max(d, -p[2], p[2] - top);
   };
 }
 

@@ -168,6 +168,43 @@ describe("astronaut fit", () => {
       }
     });
   });
+
+  it("twists the head onto the body and locks it", { timeout: 60_000 }, async () => {
+    // Without the patch the body is one part.
+    const values = draft({ chestPatch: false });
+    const result = await buildWith(ID, values);
+    const L = astronautLayout(paramsFor(ID, values));
+    const wasm = await getManifold();
+    withScope((scope) => {
+      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+      const solid = (name: string) =>
+        assembledSolid(
+          wasm,
+          scope,
+          result.parts.find((p) => p.name === name)!,
+        );
+      const body = solid("body");
+      const head = t(
+        wasm.Manifold.union(["head-front", "head-back", "disc-left", "disc-right"].map(solid)),
+      );
+      const [x, y] = [L.neck.x, L.neck.y];
+      // The head turned `turn` degrees back from locked (anticlockwise seen from above) about
+      // the neck and lifted `up` mm off the body.
+      const overlap = (turn: number, up: number) => {
+        const centred = t(head.translate([-x, -y, 0]));
+        const moved = t(t(centred.rotate([0, 0, turn])).translate([x, y, up]));
+        return t(moved.intersect(body)).volume();
+      };
+      for (const up of [8, 4, 2, 1]) {
+        expect(overlap(TWIST.turn, TWIST.rise + up), `in at ${up}`).toBeLessThan(0.5);
+      }
+      for (const f of [1, 0.75, 0.5, 0.25, 0]) {
+        expect(overlap(TWIST.turn * f, TWIST.rise * f), `turn ${f}`).toBeLessThan(0.5);
+      }
+      expect(overlap(0, 1), "pulled locked").toBeGreaterThan(2);
+      expect(overlap(TWIST.turn / 2, TWIST.rise / 2 + 1), "pulled mid-turn").toBeGreaterThan(2);
+    });
+  });
 });
 
 /** A part as a Manifold in the assembled frame. */
