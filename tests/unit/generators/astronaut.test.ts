@@ -73,17 +73,22 @@ describe("astronaut validate", () => {
     expect(issueKeys({ headBackRound: 60 })).toContain("headBackRound");
   });
 
-  it("moves the body forward under a portrait neck, as far as its socket needs", () => {
-    expect(issueKeys({ screen: "portrait" })).toEqual([]);
-    const landscape = astronautLayout(paramsFor(ID));
-    const portrait = astronautLayout(paramsFor(ID, { screen: "portrait" }));
-    // The neck stands on the plug, 9.67 mm behind the face.
+  it("keeps the body under a portrait neck and lets Forward move it", () => {
+    const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
+    const landscape = layout({});
+    const portrait = layout({ screen: "portrait" });
+    // The neck stands on the plug, 9.67 mm behind the face, and the body sits under it as it
+    // sits under the landscape neck.
     expect(portrait.neck.y).toBeCloseTo(2.5 + 7.17, 5);
-    const moved = landscape.body.cy - portrait.body.cy;
-    expect(moved).toBeGreaterThan(5);
-    expect(moved).toBeLessThan(12);
-    // No move helps a chest narrower than the R12.5 socket ring.
-    expect(issueKeys({ screen: "portrait", upperWidth: 25 })).toContain("upperWidth");
+    expect(portrait.body.cy - portrait.neck.y).toBeCloseTo(landscape.body.cy - landscape.neck.y, 5);
+    expect(issueKeys({ screen: "portrait" })).toEqual([]);
+    // Forward moves the volume in portrait too.
+    const back = layout({ screen: "portrait", upperForward: -10 });
+    expect(portrait.body.upper.center[1] - back.body.upper.center[1]).toBeCloseTo(-9, 5);
+    // Moved 2 mm further back, the socket breaks out of the chest's front ...
+    expect(issueKeys({ screen: "portrait", upperForward: -3 })).toEqual(["upperForward"]);
+    // ... unless the chest is deeper: 60 mm moved 10 mm back puts the head on top of it.
+    expect(issueKeys({ screen: "portrait", upperDepth: 60, upperForward: -10 })).toEqual([]);
   });
 });
 

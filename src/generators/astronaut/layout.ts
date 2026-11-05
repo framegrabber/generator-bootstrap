@@ -380,7 +380,12 @@ export function astronautLayout(values: Params): AstronautLayout {
     },
     meshEdge: num(values, "meshEdge"),
   };
-  return portrait ? bodyUnderNeck(L) : L;
+  if (!portrait) return L;
+  // In portrait the neck stands on the plug, close behind the face. The body keeps the place
+  // under the neck it has in landscape, so its own params (Forward, Depth) still move and size
+  // it; validation reports when the socket or the tunnel breaks out of it.
+  const landscape = astronautLayout({ ...values, screen: "landscape" });
+  return shiftBody(L, neck.y - landscape.neck.y);
 }
 
 /** The body moved `dy` along y: torso, arms, and legs. */
@@ -398,19 +403,6 @@ function shiftBody(L: AstronautLayout, dy: number): AstronautLayout {
     arms: { ...arms, shoulder: move(arms.shoulder), hand: move(arms.hand) },
     legs: { ...legs, hip: move(legs.hip), toe: move(legs.toe) },
   };
-}
-
-/**
- * In portrait the neck stands on the plug, close behind the face, so the body moves forward
- * as little as lets the socket and the cable tunnel keep their walls. If no move up to 30 mm
- * does, it stays put and validation reports what does not fit.
- */
-function bodyUnderNeck(L: AstronautLayout): AstronautLayout {
-  for (let dy = 0; dy <= 30; dy += 0.5) {
-    const moved = shiftBody(L, -dy);
-    if (socketFits(moved) && tunnelFits(moved)) return moved;
-  }
-  return L;
 }
 
 // ---- Validation --------------------------------------------------------------------------
@@ -461,11 +453,19 @@ export function validateLayout(L: AstronautLayout): ValidationIssue[] {
     });
   }
   if (!socketFits(L)) {
-    issues.push({
-      key: "upperWidth",
-      message:
-        "The top of the body is too small for the neck socket; widen or deepen the upper volume.",
-    });
+    issues.push(
+      L.portrait
+        ? {
+            key: "upperForward",
+            message:
+              "The neck socket breaks out of the chest. In portrait the neck stands just behind the face: make the upper volume deeper, or move it until the socket sits inside.",
+          }
+        : {
+            key: "upperWidth",
+            message:
+              "The top of the body is too small for the neck socket; widen or deepen the upper volume.",
+          },
+    );
   }
   if (!tunnelFits(L)) {
     issues.push({

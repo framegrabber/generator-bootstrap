@@ -87,7 +87,7 @@ const astronaut: GeneratorDef = {
         { value: "landscape", label: "Landscape (USB-C right)" },
         { value: "portrait", label: "Portrait (USB-C down)" },
       ],
-      help: "Portrait runs the cable down the neck and out under the body; the body moves forward under the neck.",
+      help: "Portrait runs the cable down the neck, which stands on the plug just behind the face, and out under the body. The body moves forward with the neck; a deeper upper body moved back puts the head on top of it.",
     },
     mm(
       "headMarginSide",
