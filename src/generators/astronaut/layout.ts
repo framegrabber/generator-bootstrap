@@ -233,15 +233,13 @@ export function astronautLayout(values: Params): AstronautLayout {
   const posts = (BOARD.standoffs?.at ?? []).map(([u, v]): [number, number] => [v, cz - u]);
   const postTip = WALL + BOARD.thickness;
 
-  // Speakers stand side by side on the back wall, long side vertical, centred between the
-  // posts' columns.
+  // Speakers stand side by side on the back wall, long side vertical, centred on the back. The
+  // posts sit off-centre with the board's standoffs, but below and above the fences.
   const [across, long] = BOARD.speakers?.size ?? [0, 0];
   const fx = across / 2 + FENCE.fit + FENCE.wall;
   const fz = long / 2 + FENCE.fit + FENCE.wall;
-  const xs = posts.map(([x]) => x);
-  const mid = xs.length > 0 ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
   const speakers: FaceRect[] = BOARD.speakers
-    ? [-1, 1].map((s) => ({ x: mid + s * (fx + 0.5), z: cz, hx: fx, hz: fz }))
+    ? [-1, 1].map((s) => ({ x: s * (fx + 0.5), z: cz, hx: fx, hz: fz }))
     : [];
 
   return {

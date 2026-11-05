@@ -344,9 +344,10 @@ function grillePoints(hx: number, hz: number): [number, number][] {
   const row = GRILLE.pitch * Math.sin(Math.PI / 3);
   const points: [number, number][] = [];
   const rows = Math.floor((hz - r) / row);
+  // Odd rows sit half a pitch over; the filter keeps every row symmetric about x = 0.
+  const cols = Math.ceil(hx / GRILLE.pitch) + 1;
   for (let j = -rows; j <= rows; j++) {
     const shift = j % 2 === 0 ? 0 : GRILLE.pitch / 2;
-    const cols = Math.floor((hx - r - shift) / GRILLE.pitch);
     for (let i = -cols; i <= cols; i++) {
       const x = i * GRILLE.pitch + shift;
       if (Math.abs(x) + r <= hx) points.push([x, j * row]);

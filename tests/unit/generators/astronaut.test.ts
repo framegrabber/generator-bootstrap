@@ -102,6 +102,29 @@ describe("astronaut fit", () => {
     });
   });
 
+  it("centres the speaker grilles on the back", { timeout: 30_000 }, async () => {
+    const result = await buildWith(ID, draft());
+    const L = astronautLayout(paramsFor(ID, draft()));
+    const { hw, hh, cz, depth, backRadius } = L.head;
+    const wasm = await getManifold();
+    withScope((scope) => {
+      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+      const back = assembledSolid(
+        wasm,
+        scope,
+        result.parts.find((p) => p.name === "head-back")!,
+      );
+      // The flat middle of the back wall, where the grille holes go, mirrored about x = 0.
+      const [fx, fz] = [hw - backRadius - WALL, hh - backRadius - WALL];
+      const slab = t(
+        t(wasm.Manifold.cube([2 * fx, WALL, 2 * fz], true)).translate([0, depth - WALL / 2, cz]),
+      );
+      const wall = t(back.intersect(slab));
+      const mirrored = t(wall.mirror([1, 0, 0]));
+      expect(t(wall.subtract(mirrored)).volume()).toBeLessThan(0.5);
+    });
+  });
+
   it("twists the helmet discs on and locks them", { timeout: 60_000 }, async () => {
     const result = await buildWith(ID, draft());
     const L = astronautLayout(paramsFor(ID, draft()));
