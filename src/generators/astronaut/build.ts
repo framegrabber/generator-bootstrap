@@ -36,6 +36,7 @@ import {
   chestSurface,
   NECK,
   TONGUE,
+  TUNNEL,
   TWIST,
   USB_OPENING,
   WALL,
@@ -240,20 +241,26 @@ const build: GeneratorBuild = async (values, { wasm }) => {
       k.prismY(k.roundedRect(2 * (view.hx + 0.6), 2 * (view.hz + 0.6), 2.5), -1, WALL + 0.5, cz),
       // The module is as wide as the inside, so its pocket shaves the wall where it is tight.
       k.prismY(glassCS, WALL - 0.01, WALL + 10.5, cz),
-      sweep(
-        k.roundedRect(USB_OPENING.short, USB_OPENING.long, USB_OPENING.corner),
-        frame([hw - WALL - 1, L.usb.y, L.usb.z], [0, 1, 0], [0, 0, 1], [1, 0, 0]),
-        WALL + 3,
-      ),
-      ...L.pinHoles.map((h) =>
-        t(
-          t(M.cylinder(cz + hh + 1 - (h.z - 1), PIN_HOLE / 2, PIN_HOLE / 2, 24)).translate([
-            h.x,
-            h.y,
-            h.z - 1,
+      // Landscape: the USB-C opening in the right side, pin holes up through the top.
+      // Portrait: the plug goes down the neck, pin holes out through the right side.
+      ...(L.portrait
+        ? L.pinHoles.map((h) => k.cylinderX(PIN_HOLE / 2, h.x - 1, hw + 1, h.y, h.z))
+        : [
+            sweep(
+              k.roundedRect(USB_OPENING.short, USB_OPENING.long, USB_OPENING.corner),
+              frame([hw - WALL - 1, L.usb.y, L.usb.z], [0, 1, 0], [0, 0, 1], [1, 0, 0]),
+              WALL + 3,
+            ),
+            ...L.pinHoles.map((h) =>
+              t(
+                t(M.cylinder(cz + hh + 1 - (h.z - 1), PIN_HOLE / 2, PIN_HOLE / 2, 24)).translate([
+                  h.x,
+                  h.y,
+                  h.z - 1,
+                ]),
+              ),
+            ),
           ]),
-        ),
-      ),
     ];
     const head = t(
       t(M.union([t(outer.subtract(inner)), pocketFrame, ...bosses])).subtract(t(M.union(openings))),
@@ -266,8 +273,23 @@ const build: GeneratorBuild = async (values, { wasm }) => {
       L.seamY + TONGUE.height,
       cz,
     );
-    // The neck joins after the split: its hooks stand past the seam below the head.
-    const front = t(M.union([frontRaw, tongue, neck]));
+    // The neck joins after the split: its hooks stand past the seam below the head. In
+    // portrait the plug goes down through the bottom wall and the neck; R1 corners pass even a
+    // square-cornered 12.2 × 6.3 plug body.
+    const plugway = (cs: CrossSection, z0: number, z1: number) =>
+      k.prismZ(t(cs.translate([L.neck.x, L.neck.y])), z0, z1);
+    const necked = t(M.union([frontRaw, tongue, neck]));
+    const front = L.portrait
+      ? t(
+          necked.subtract(
+            plugway(
+              k.roundedRect(USB_OPENING.long, USB_OPENING.short, 1),
+              cz - hh - NECK.length - 1,
+              cz - hh + WALL + 0.5,
+            ),
+          ),
+        )
+      : necked;
 
     const groove = k.prismY(
       ring(TONGUE.outer - TONGUE.fit, TONGUE.inner + TONGUE.fit),
@@ -310,8 +332,27 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     );
 
     // ---- Body: one piece, with the socket the neck twists into -------------------------
+    // In portrait a round tunnel runs from the socket down through the base, and a notch
+    // under the base leads the cable out to the back.
+    const tunnel = L.portrait
+      ? [
+          plugway(t(CS.circle(TUNNEL.radius, 64)), -1, L.body.top - NECK.length),
+          plugway(
+            t(
+              t(CS.square([TUNNEL.notch, bodyBounds(L).max[1] - L.neck.y + 2])).translate([
+                -TUNNEL.notch / 2,
+                0,
+              ]),
+            ),
+            -1,
+            TUNNEL.notch,
+          ),
+        ]
+      : [];
     const solidBody = t(
-      mesh(bodySdf(L), bodyBounds(L)).subtract(twistBore(r, NECK.length, neckTip)),
+      mesh(bodySdf(L), bodyBounds(L)).subtract(
+        t(M.union([twistBore(r, NECK.length, neckTip), ...tunnel])),
+      ),
     );
 
     // ---- Chest patch: a flat badge glued into a flat-floored recess ---------------------
@@ -483,9 +524,47 @@ function assemblyNotes(L: AstronautLayout): string {
     : L.patch
       ? ["- patch: face up."]
       : [];
-  const glue = L.patch
-    ? ["6. Glue the chest badge into the recess on the chest, its flat back on the floor."]
-    : [];
+  const steps = [
+    [
+      "Flash the board. Lay it face down in head-front, glass in the shallow pocket, USB-C",
+      ...(L.portrait
+        ? [
+            "down over the hole in the neck. Push the cable's USB-C plug up through the neck",
+            "into the board.",
+          ]
+        : ["toward the opening on the right side."]),
+    ],
+    [
+      "Press the speakers into the fences in head-back, leads out through the gaps at the",
+      "bottom, and plug them and the battery into the board.",
+    ],
+    [
+      "Close the head: the tongue of head-front slides into head-back, and the four posts",
+      "press the board onto the front.",
+    ],
+    [
+      "Fit a helmet disc on each side boss: turn it so the two notches inside line up with",
+      "the hooks on the boss's points, push it on as far as it goes, and turn it clockwise",
+      `(seen from that side) about ${TWIST.turn} degrees until it stops. The turn draws the`,
+      "disc tight and clamps the halves together; turn it back to open the head.",
+    ],
+    ...(L.portrait
+      ? [
+          [
+            "Thread the cable's other end down through the socket on top of the body and out",
+            "under the base, and lay it in the notch toward the back.",
+          ],
+        ]
+      : []),
+    [
+      `Set the head on the body turned about ${TWIST.turn} degrees anticlockwise (seen from`,
+      "above), so the notches in the socket line up with the hooks on the neck, push it",
+      "down, and turn it clockwise until it faces forward and stops.",
+    ],
+    ...(L.patch
+      ? [["Glue the chest badge into the recess on the chest, its flat back on the floor."]]
+      : []),
+  ];
   return [
     "Screen astronaut: printing and assembly",
     "",
@@ -500,23 +579,14 @@ function assemblyNotes(L: AstronautLayout): string {
     "No supports are needed; the bosses and the neck have 45-degree points for that.",
     "",
     "Assembly:",
-    "1. Flash the board. Lay it face down in head-front, glass in the shallow pocket, USB-C",
-    "   toward the opening on the right side.",
-    "2. Press the speakers into the fences in head-back, leads out through the gaps at the",
-    "   bottom, and plug them and the battery into the board.",
-    "3. Close the head: the tongue of head-front slides into head-back, and the four posts",
-    "   press the board onto the front.",
-    "4. Fit a helmet disc on each side boss: turn it so the two notches inside line up with",
-    "   the hooks on the boss's points, push it on as far as it goes, and turn it clockwise",
-    `   (seen from that side) about ${TWIST.turn} degrees until it stops. The turn draws the`,
-    "   disc tight and clamps the halves together; turn it back to open the head.",
-    `5. Set the head on the body turned about ${TWIST.turn} degrees anticlockwise (seen from`,
-    "   above), so the notches in the socket line up with the hooks on the neck, push it",
-    "   down, and turn it clockwise until it faces forward and stops.",
-    ...glue,
+    ...steps.flatMap((lines, i) => lines.map((line, j) => (j === 0 ? `${i + 1}. ` : "   ") + line)),
     "",
-    `Buttons: the pin holes on top of the head reach ${buttons} (left to right from`,
-    "the middle); press them with a straightened paperclip.",
+    L.portrait
+      ? `Buttons: the pin holes in the right side of the head reach ${buttons} (from the`
+      : `Buttons: the pin holes on top of the head reach ${buttons} (left to right from`,
+    L.portrait
+      ? "middle upward); press them with a straightened paperclip."
+      : "the middle); press them with a straightened paperclip.",
     "The battery is not held in place; it lies between the posts behind the board.",
     "",
   ].join("\n");

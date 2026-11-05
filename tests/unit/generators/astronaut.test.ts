@@ -18,26 +18,34 @@ const ID = "astronaut";
 const draft = (overrides: Params = {}): Params => ({ meshEdge: 1.2, ...overrides });
 
 describe("astronaut head", () => {
-  // The 2.8" board, landscape: glass 73.06 x 50.54, its centre 3 mm right of the visible area's
-  // centre, 6 mm of plug room below, 2.5 mm wall. The face is centred on the visible area.
-  const halfWidth = 73.06 / 2 + 3 + 2.5;
-  const halfHeight = 50.54 / 2 + 6 + 2.5;
-
-  it("fits the board, plus the extra margins", { timeout: 30_000 }, async () => {
-    for (const [side, top] of [
-      [0, 0],
-      [5, 3],
-    ]) {
-      const result = await buildWith(ID, draft({ headMarginSide: side, headMarginTop: top }));
-      const front = result.parts.find((p) => p.name === "head-front")!;
-      const b = boundsOf([front.mesh])!;
-      // Face down on the bed: x spans the width plus the 5 mm bosses, y the height plus the
-      // 8 mm neck stem.
-      expect(b.max[0] - b.min[0]).toBeCloseTo(2 * (halfWidth + side) + 10, 0);
-      expect(b.max[1] - b.min[1]).toBeCloseTo(2 * (halfHeight + top) + 8, 0);
-      expect(b.min[2]).toBeCloseTo(0, 3);
-    }
-  });
+  // The 2.8" board: glass 50.54 x 73.06 (the long side toward USB-C), its centre 3 mm toward
+  // USB-C from the visible area's centre, 6 mm of plug room past its long sides, 2.5 mm wall.
+  // The face is centred on the visible area.
+  it.each([
+    ["landscape", 73.06 / 2 + 3 + 2.5, 50.54 / 2 + 6 + 2.5],
+    ["portrait", 50.54 / 2 + 6 + 2.5, 73.06 / 2 + 3 + 2.5],
+  ])(
+    "fits the board %s, plus the extra margins",
+    { timeout: 30_000 },
+    async (screen, halfWidth, halfHeight) => {
+      for (const [side, top] of [
+        [0, 0],
+        [5, 3],
+      ]) {
+        const result = await buildWith(
+          ID,
+          draft({ screen, headMarginSide: side, headMarginTop: top }),
+        );
+        const front = result.parts.find((p) => p.name === "head-front")!;
+        const b = boundsOf([front.mesh])!;
+        // Face down on the bed: x spans the width plus the 5 mm bosses, y the height plus the
+        // 8 mm neck.
+        expect(b.max[0] - b.min[0]).toBeCloseTo(2 * (halfWidth + side) + 10, 0);
+        expect(b.max[1] - b.min[1]).toBeCloseTo(2 * (halfHeight + top) + 8, 0);
+        expect(b.min[2]).toBeCloseTo(0, 3);
+      }
+    },
+  );
 });
 
 describe("astronaut validate", () => {
@@ -64,48 +72,65 @@ describe("astronaut validate", () => {
     expect(issueKeys({ headBackRound: 20 })).toEqual([]);
     expect(issueKeys({ headBackRound: 60 })).toContain("headBackRound");
   });
+
+  it("moves the body forward under a portrait neck, as far as its socket needs", () => {
+    expect(issueKeys({ screen: "portrait" })).toEqual([]);
+    const landscape = astronautLayout(paramsFor(ID));
+    const portrait = astronautLayout(paramsFor(ID, { screen: "portrait" }));
+    // The neck stands on the plug, 9.67 mm behind the face.
+    expect(portrait.neck.y).toBeCloseTo(2.5 + 7.17, 5);
+    const moved = landscape.body.cy - portrait.body.cy;
+    expect(moved).toBeGreaterThan(5);
+    expect(moved).toBeLessThan(12);
+    // No move helps a chest narrower than the R12.5 socket ring.
+    expect(issueKeys({ screen: "portrait", upperWidth: 25 })).toContain("upperWidth");
+  });
 });
 
 describe("astronaut fit", () => {
-  it("assembles without parts or hardware colliding", { timeout: 60_000 }, async () => {
-    const result = await buildWith(ID, draft());
-    const L = astronautLayout(paramsFor(ID, draft()));
-    const wasm = await getManifold();
-    withScope((scope) => {
-      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
-      const placed = result.parts.map(
-        (part) => [part.name, assembledSolid(wasm, scope, part)] as const,
-      );
-      const overlap = (a: Manifold, b: Manifold) => t(a.intersect(b)).volume();
-      for (let i = 0; i < placed.length; i++) {
-        for (let j = i + 1; j < placed.length; j++) {
-          const [[a, sa], [b, sb]] = [placed[i], placed[j]];
-          expect(overlap(sa, sb), `${a} x ${b}`).toBeLessThan(0.5);
+  it.each(["landscape", "portrait"])(
+    "assembles %s without parts or hardware colliding",
+    { timeout: 60_000 },
+    async (screen) => {
+      const result = await buildWith(ID, draft({ screen }));
+      const L = astronautLayout(paramsFor(ID, draft({ screen })));
+      const wasm = await getManifold();
+      withScope((scope) => {
+        const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+        const placed = result.parts.map(
+          (part) => [part.name, assembledSolid(wasm, scope, part)] as const,
+        );
+        const overlap = (a: Manifold, b: Manifold) => t(a.intersect(b)).volume();
+        for (let i = 0; i < placed.length; i++) {
+          for (let j = i + 1; j < placed.length; j++) {
+            const [[a, sa], [b, sb]] = [placed[i], placed[j]];
+            expect(overlap(sa, sb), `${a} x ${b}`).toBeLessThan(0.5);
+          }
         }
-      }
-      // The module (glass outline with its R2 corners, from the glass front to the standoff
-      // tips) and the speakers on the back wall fit their spaces.
-      const { glass, cz, depth } = L.head;
-      const outline = t(
-        t(wasm.CrossSection.square([2 * glass.hx - 4, 2 * glass.hz - 4], true)).offset(
-          2,
-          "Round",
-          2,
-          32,
-        ),
-      );
-      const module = t(
-        t(t(outline.extrude(10)).rotate([-90, 0, 0])).translate([glass.cx, WALL, cz + glass.cz]),
-      );
-      const speakers = L.speakers.map((s) =>
-        t(t(wasm.Manifold.cube([20, 5.5, 30], true)).translate([s.x, depth - WALL - 2.75, s.z])),
-      );
-      const halves = placed.filter(([name]) => name.startsWith("head-")).map(([, s]) => s);
-      const head = t(wasm.Manifold.union(halves));
-      expect(overlap(head, module), "module").toBeLessThan(0.5);
-      for (const s of speakers) expect(overlap(head, s), "speaker").toBeLessThan(0.5);
-    });
-  });
+        // The module (glass outline with its R2 corners, from the glass front to the standoff
+        // tips) and the speakers on the back wall fit their spaces.
+        const { glass, cz, depth } = L.head;
+        const outline = t(
+          t(wasm.CrossSection.square([2 * glass.hx - 4, 2 * glass.hz - 4], true)).offset(
+            2,
+            "Round",
+            2,
+            32,
+          ),
+        );
+        const module = t(
+          t(t(outline.extrude(10)).rotate([-90, 0, 0])).translate([glass.cx, WALL, cz + glass.cz]),
+        );
+        const speakers = L.speakers.map((s) =>
+          t(t(wasm.Manifold.cube([20, 5.5, 30], true)).translate([s.x, depth - WALL - 2.75, s.z])),
+        );
+        const halves = placed.filter(([name]) => name.startsWith("head-")).map(([, s]) => s);
+        const head = t(wasm.Manifold.union(halves));
+        expect(overlap(head, module), "module").toBeLessThan(0.5);
+        for (const s of speakers) expect(overlap(head, s), "speaker").toBeLessThan(0.5);
+      });
+    },
+  );
 
   it("centres the speaker grilles on the back", { timeout: 30_000 }, async () => {
     const result = await buildWith(ID, draft());
@@ -174,40 +199,81 @@ describe("astronaut fit", () => {
     });
   });
 
-  it("twists the head onto the body and locks it", { timeout: 60_000 }, async () => {
-    const result = await buildWith(ID, draft());
-    const L = astronautLayout(paramsFor(ID, draft()));
-    const wasm = await getManifold();
-    withScope((scope) => {
-      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
-      const solid = (name: string) =>
-        assembledSolid(
+  it.each(["landscape", "portrait"])(
+    "twists the head onto the body (%s) and locks it",
+    { timeout: 60_000 },
+    async (screen) => {
+      const result = await buildWith(ID, draft({ screen }));
+      const L = astronautLayout(paramsFor(ID, draft({ screen })));
+      const wasm = await getManifold();
+      withScope((scope) => {
+        const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+        const solid = (name: string) =>
+          assembledSolid(
+            wasm,
+            scope,
+            result.parts.find((p) => p.name === name)!,
+          );
+        const body = solid("body");
+        const shell = ["head-front", "head-back", "disc-left", "disc-right"].map(solid);
+        // In portrait a 12.2 x 6.3 USB-C plug, 25 mm from the port to the end of its strain
+        // relief, hangs from the board's bottom edge through the neck and turns with the head.
+        const { usb } = L;
+        const plug = t(
+          t(wasm.Manifold.cube([12.2, 6.3, 25], true)).translate([usb.x, usb.y, usb.z - 12.5]),
+        );
+        if (L.portrait) {
+          for (const s of shell) expect(t(plug.intersect(s)).volume(), "plug").toBeLessThan(0.5);
+        }
+        const head = t(wasm.Manifold.union(L.portrait ? [...shell, plug] : shell));
+        const [x, y] = [L.neck.x, L.neck.y];
+        // The head turned `turn` degrees back from locked (anticlockwise seen from above)
+        // about the neck and lifted `up` mm off the body.
+        const overlap = (turn: number, up: number) => {
+          const centred = t(head.translate([-x, -y, 0]));
+          const moved = t(t(centred.rotate([0, 0, turn])).translate([x, y, up]));
+          return t(moved.intersect(body)).volume();
+        };
+        for (const up of [8, 4, 2, 1]) {
+          expect(overlap(TWIST.turn, TWIST.rise + up), `in at ${up}`).toBeLessThan(0.5);
+        }
+        for (const f of [1, 0.75, 0.5, 0.25, 0]) {
+          expect(overlap(TWIST.turn * f, TWIST.rise * f), `turn ${f}`).toBeLessThan(0.5);
+        }
+        expect(overlap(0, 1), "pulled locked").toBeGreaterThan(2);
+        expect(overlap(TWIST.turn / 2, TWIST.rise / 2 + 1), "pulled mid-turn").toBeGreaterThan(2);
+      });
+    },
+  );
+
+  it(
+    "leads the portrait cable down the body and out under the base",
+    { timeout: 30_000 },
+    async () => {
+      const values = draft({ screen: "portrait" });
+      const result = await buildWith(ID, values);
+      const L = astronautLayout(paramsFor(ID, values));
+      const wasm = await getManifold();
+      withScope((scope) => {
+        const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+        const body = assembledSolid(
           wasm,
           scope,
-          result.parts.find((p) => p.name === name)!,
+          result.parts.find((p) => p.name === "body")!,
         );
-      const body = solid("body");
-      const head = t(
-        wasm.Manifold.union(["head-front", "head-back", "disc-left", "disc-right"].map(solid)),
-      );
-      const [x, y] = [L.neck.x, L.neck.y];
-      // The head turned `turn` degrees back from locked (anticlockwise seen from above) about
-      // the neck and lifted `up` mm off the body.
-      const overlap = (turn: number, up: number) => {
-        const centred = t(head.translate([-x, -y, 0]));
-        const moved = t(t(centred.rotate([0, 0, turn])).translate([x, y, up]));
-        return t(moved.intersect(body)).volume();
-      };
-      for (const up of [8, 4, 2, 1]) {
-        expect(overlap(TWIST.turn, TWIST.rise + up), `in at ${up}`).toBeLessThan(0.5);
-      }
-      for (const f of [1, 0.75, 0.5, 0.25, 0]) {
-        expect(overlap(TWIST.turn * f, TWIST.rise * f), `turn ${f}`).toBeLessThan(0.5);
-      }
-      expect(overlap(0, 1), "pulled locked").toBeGreaterThan(2);
-      expect(overlap(TWIST.turn / 2, TWIST.rise / 2 + 1), "pulled mid-turn").toBeGreaterThan(2);
-    });
-  });
+        // A 4 mm cable from the plug's end straight down to 2 mm above the bed, then back
+        // along the bed past the body.
+        const { x, y } = L.neck;
+        const down = t(t(wasm.Manifold.cylinder(L.usb.z - 25 - 2, 2, 2, 24)).translate([x, y, 2]));
+        const back = body.boundingBox().max[1] + 5;
+        const along = t(
+          t(t(wasm.Manifold.cylinder(back - y, 2, 2, 24)).rotate([-90, 0, 0])).translate([x, y, 2]),
+        );
+        expect(t(down.intersect(body)).volume(), "down").toBeLessThan(0.1);
+        expect(t(along.intersect(body)).volume(), "along").toBeLessThan(0.1);
+      });
+    },
+  );
 
   it.each(["rounded", "circle", "hexagon", "shield"])(
     "seats a %s badge in its recess, lettering on its face",
