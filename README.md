@@ -6,13 +6,13 @@ A starter kit for parametric 3D-print generators that run entirely in the browse
 
 ## Generators
 
-| Generator | What it makes |
-|---|---|
-| Display dog | A sitting dog enclosure around a small ESP32 display: head in two halves, body with a neck socket, optional speakers in the ears |
-| Display robot | The same idea as a robot: helmet head with ear pods and an antenna |
-| Screen astronaut | A sitting astronaut whose face is the Waveshare ESP32-S3-Touch-LCD-2.8; twist-lock helmet discs hold the head halves together |
-| Name tag | Text on a rounded plate: embedded or raised in a second colour, or cut out; bundled or uploaded fonts |
-| Rounded tag | A flat rounded-rectangle tag with an optional hole; the smallest example |
+| Generator        | What it makes                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Display dog      | A sitting dog enclosure around a small ESP32 display: head in two halves, body with a neck socket, optional speakers in the ears |
+| Display robot    | The same idea as a robot: helmet head with ear pods and an antenna                                                               |
+| Screen astronaut | A sitting astronaut whose face is the Waveshare ESP32-S3-Touch-LCD-2.8; twist-lock helmet discs hold the head halves together    |
+| Name tag         | Text on a rounded plate: embedded or raised in a second colour, or cut out; bundled or uploaded fonts                            |
+| Rounded tag      | A flat rounded-rectangle tag with an optional hole; the smallest example                                                         |
 
 None of the enclosures has been printed yet; see "Known gaps" in [AGENTS.md](AGENTS.md).
 
