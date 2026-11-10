@@ -69,13 +69,14 @@ const deg = (
  * A Deskimon-style astronaut around the Waveshare 2.8" board (landscape with USB-C on the
  * right, or portrait with USB-C down the neck): every proportion of the head, torso, arms, and
  * legs is a param. The head prints as a front and a back half, held together by the helmet
- * discs, and twists onto the body; see layout.ts.
+ * discs, and twists onto the body (landscape) or pushes into its neck ring (portrait); see
+ * layout.ts.
  */
 const astronaut: GeneratorDef = {
   id: "astronaut",
   name: "Screen astronaut",
   description:
-    "A sitting astronaut whose face is the Waveshare ESP32-S3-Touch-LCD-2.8. The head prints in two halves that the helmet discs hold together and twists onto the body; the body prints in one piece.",
+    "A sitting astronaut whose face is the Waveshare ESP32-S3-Touch-LCD-2.8. The head prints in two halves that the helmet discs hold together and fits onto the body; the body prints in one piece.",
   params: [
     {
       kind: "select",
@@ -87,7 +88,7 @@ const astronaut: GeneratorDef = {
         { value: "landscape", label: "Landscape (USB-C right)" },
         { value: "portrait", label: "Portrait (USB-C down)" },
       ],
-      help: "Portrait runs the cable down the neck, which stands on the plug just behind the face, and out under the body. The body moves forward with the neck; a deeper upper body moved back puts the head on top of it.",
+      help: "Landscape: the head twist-locks onto the body. Portrait: the plug hangs down through the head's neck, the head pushes straight into a neck ring on the body, and the cable runs out under the base.",
     },
     mm(
       "headMarginSide",

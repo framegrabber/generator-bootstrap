@@ -16,8 +16,9 @@ import type { Params, ValidationIssue } from "../../core/types";
 /**
  * The astronaut's shapes and fittings from its params, built Deskimon-style from a few
  * blocks: a flat-fronted pillow head around the Waveshare 2.8" board (landscape, USB-C on the
- * right), a torso of two stacked superellipsoids blended together, slab arms, and rounded-box
- * feet, joined with small fillets. Main-thread safe (pure math), so `validate` can use it.
+ * right, or portrait, USB-C down), a torso of two stacked superellipsoids blended together,
+ * slab arms, and rounded-box feet, joined with small fillets. Main-thread safe (pure math), so
+ * `validate` can use it.
  *
  * Frame: Z up, face toward -Y, millimetres. The face (head front) is the plane y = 0, centred
  * on x = 0 and on the screen's visible area. The body rests on z = 0.
@@ -25,7 +26,9 @@ import type { Params, ValidationIssue } from "../../core/types";
  * The head prints as two halves split at `seamY`, held together by a boss on each side, split
  * by the seam and capped by a helmet disc that twists on (see TWIST). The bosses have a lemon
  * profile (a circle with 45° points toward ±y), so each half's share prints without support.
- * The neck stands under the front half and twists into the body's socket the same way.
+ * In landscape the neck stands under the front half and twists into the body's socket the same
+ * way. In portrait the neck is a sleeve round the plug that pushes straight down into a neck
+ * ring on the body (see COLLAR); it does not turn.
  */
 
 const BOARD = DISPLAYS["waveshare-s3-touch-lcd-28"].module;
@@ -81,15 +84,27 @@ export const FENCE = { wall: 1.2, height: 3, fit: 0.3, gap: 7 };
 export const GRILLE = { radius: 1, pitch: 3.2 };
 /** USB-C opening (along the edge, across), corner radius. */
 export const USB_OPENING = { long: 13, short: 7, corner: 2 };
-/** Portrait neck: the plug passes down its axis through a USB-C opening, `LOCK_WALL` round it. */
+/**
+ * Portrait neck: a sleeve round the plug, which passes down its axis through a USB-C opening
+ * with `LOCK_WALL` round it. Flat sides `SLEEVE_FLAT` from the axis and a square back key it in
+ * its socket; the front stays round with a 45° point, since it faces the bed.
+ */
 export const PLUG_NECK_RADIUS =
   Math.ceil(2 * (Math.hypot(USB_OPENING.long, USB_OPENING.short) / 2 + LOCK_WALL)) / 2;
+export const SLEEVE_FLAT = USB_OPENING.long / 2 + LOCK_WALL;
 /**
- * Portrait cable tunnel from the socket down through the base, round so the 12.2 × 6.3 plug can
- * turn with the head below the neck and the cable's far plug threads through; and the width and
- * height of the notch under the base that leads the 4 mm cable out to the back.
+ * Portrait neck ring on the body, under the head: as tall as the sleeve is long, wide enough
+ * to keep `LOCK_WALL` round the sleeve's socket, and a 45° cone below it down into the torso,
+ * so it prints without support. The plug sits 9.7 mm behind the face, in front of the top of a
+ * body centred under the head; the ring is what holds it.
  */
-export const TUNNEL = { radius: 7.4, notch: 5 };
+export const COLLAR = { height: NECK.length, fit: 0.25 };
+/**
+ * Portrait cable tunnel: the plug's opening straight down through the body, so the plug hangs
+ * in it and the cable's far plug threads through; `notch` is the width and height of the
+ * groove under the base that leads the 4 mm cable out to the back.
+ */
+export const TUNNEL = { notch: 5 };
 export const PIN_HOLE = 1.6;
 /** Board pocket: depth of the frame that locates the glass, and its clearance. */
 export const POCKET = { depth: 1.5, fit: 0.3 };
@@ -168,6 +183,8 @@ export type AstronautLayout = {
    * cable through a tunnel in the body.
    */
   portrait: boolean;
+  /** Portrait: the neck ring's axis and radius; it stands `COLLAR.height` on the body's top. */
+  collar: { x: number; y: number; radius: number } | null;
   /** USB-C port centre: in the right side in landscape, in the bottom edge in portrait. */
   usb: { x: number; y: number; z: number };
   /**
@@ -244,8 +261,9 @@ export function astronautLayout(values: Params): AstronautLayout {
   const lower = volume("lower", -0.25 * lowerTop, lowerTop);
   const upper = volume("upper", upperCenter - upperHeight / 2, upperCenter + upperHeight / 2);
   const top = upperCenter + 0.4 * upperHeight;
-  // The head rests on the flat top, so it can turn on its neck to lock.
-  const cz = top + hh;
+  // The head rests on the flat top, so it can turn on its neck to lock; in portrait it rests
+  // on the neck ring.
+  const cz = top + (portrait ? COLLAR.height : 0) + hh;
 
   const armThickness = num(values, "armThickness");
   const armWidth = num(values, "armWidth");
@@ -298,10 +316,18 @@ export function astronautLayout(values: Params): AstronautLayout {
     ),
   );
   // In landscape the neck stands as far back as the front half's bottom allows, over the
-  // torso's middle; in portrait it stands on the plug.
+  // torso's middle; in portrait it stands on the plug, and the neck ring, centred on the upper
+  // volume, reaches round its socket.
   const neck = portrait
     ? { x: usb.x, y: usb.y, radius: PLUG_NECK_RADIUS }
     : { x: 0, y: seamY - NECK.radius - 0.5, radius: NECK.radius };
+  const collar = portrait
+    ? {
+        x: 0,
+        y: upper.center[1],
+        radius: Math.hypot(neck.x, upper.center[1] - neck.y) + neck.radius + COLLAR.fit + LOCK_WALL,
+      }
+    : null;
   const posts = (BOARD.standoffs?.at ?? []).map(([u, v]): [number, number] => {
     const [x, z] = toFace(u, v);
     return [x, cz + z];
@@ -317,7 +343,7 @@ export function astronautLayout(values: Params): AstronautLayout {
     ? [-1, 1].map((s) => ({ x: s * (fx + 0.5), z: cz, hx: fx, hz: fz }))
     : [];
 
-  const L: AstronautLayout = {
+  return {
     head: {
       hw,
       hh,
@@ -355,6 +381,7 @@ export function astronautLayout(values: Params): AstronautLayout {
     discRadius,
     neck,
     portrait,
+    collar,
     usb,
     pinHoles,
     posts,
@@ -379,29 +406,6 @@ export function astronautLayout(values: Params): AstronautLayout {
       eyes: str(values, "eyeColor"),
     },
     meshEdge: num(values, "meshEdge"),
-  };
-  if (!portrait) return L;
-  // In portrait the neck stands on the plug, close behind the face. The body keeps the place
-  // under the neck it has in landscape, so its own params (Forward, Depth) still move and size
-  // it; validation reports when the socket or the tunnel breaks out of it.
-  const landscape = astronautLayout({ ...values, screen: "landscape" });
-  return shiftBody(L, neck.y - landscape.neck.y);
-}
-
-/** The body moved `dy` along y: torso, arms, and legs. */
-function shiftBody(L: AstronautLayout, dy: number): AstronautLayout {
-  const move = ([x, y, z]: Vec3): Vec3 => [x, y + dy, z];
-  const { body, arms, legs } = L;
-  return {
-    ...L,
-    body: {
-      ...body,
-      cy: body.cy + dy,
-      lower: { ...body.lower, center: move(body.lower.center) },
-      upper: { ...body.upper, center: move(body.upper.center) },
-    },
-    arms: { ...arms, shoulder: move(arms.shoulder), hand: move(arms.hand) },
-    legs: { ...legs, hip: move(legs.hip), toe: move(legs.toe) },
   };
 }
 
@@ -453,56 +457,73 @@ export function validateLayout(L: AstronautLayout): ValidationIssue[] {
     });
   }
   if (!socketFits(L)) {
-    issues.push(
-      L.portrait
-        ? {
-            key: "upperForward",
-            message:
-              "The neck socket breaks out of the chest. In portrait the neck stands just behind the face: make the upper volume deeper, or move it until the socket sits inside.",
-          }
-        : {
-            key: "upperWidth",
-            message:
-              "The top of the body is too small for the neck socket; widen or deepen the upper volume.",
-          },
-    );
+    issues.push({
+      key: "upperWidth",
+      message:
+        "The top of the body is too small for the neck socket; widen or deepen the upper volume.",
+    });
+  }
+  // The neck ring reaches from the plug, just behind the face, as far back again past the
+  // upper volume's centre, so a body far back makes it stick out behind the head.
+  if (L.collar && L.collar.y + L.collar.radius > depth + 2) {
+    issues.push({
+      key: "upperForward",
+      message:
+        "The neck ring sticks out behind the head; move the upper volume forward under the head.",
+    });
   }
   if (!tunnelFits(L)) {
     issues.push({
-      key: "lowerDepth",
-      message: "The cable tunnel breaks out of the body; make the body deeper or wider.",
+      key: "upperForward",
+      message:
+        "The cable tunnel under the plug breaks out of the body's front; move the body forward or make it deeper.",
     });
   }
   return issues;
 }
 
-/** Whether a circle of radius `r` round the neck's axis lies inside the torso at height `z`. */
-function ringInside(torso: Sdf, L: AstronautLayout, r: number, z: number): boolean {
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * 2 * Math.PI;
-    if (torso([L.neck.x + r * Math.sin(a), L.neck.y + r * Math.cos(a), z]) > 0) return false;
-  }
-  return true;
-}
-
 /**
- * Whether the neck socket, its groove plus `LOCK_WALL`, lies inside the torso from below the
- * neck's tip up to the flat top.
+ * Whether the landscape neck socket, its groove plus `LOCK_WALL`, lies inside the torso from
+ * below the neck's tip up to the flat top. The portrait socket sits in the neck ring.
  */
 function socketFits(L: AstronautLayout): boolean {
+  if (L.portrait) return true;
   const torso = torsoSdf(L);
   const r = grooveRadius(L.neck.radius) + LOCK_WALL;
   const { top } = L.body;
-  return [top - NECK.length - 1, top - 0.5].every((z) => ringInside(torso, L, r, z));
+  return [top - NECK.length - 1, top - 0.5].every((z) => {
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * 2 * Math.PI;
+      if (torso([L.neck.x + r * Math.sin(a), L.neck.y + r * Math.cos(a), z]) > 0) return false;
+    }
+    return true;
+  });
 }
 
-/** Whether the portrait cable tunnel, plus `LOCK_WALL`, lies inside the torso below the socket. */
+/**
+ * Whether the portrait cable tunnel, plus `LOCK_WALL`, lies inside the body below the neck
+ * ring: in the torso, or in the ring's 45° cone.
+ */
 function tunnelFits(L: AstronautLayout): boolean {
-  if (!L.portrait) return true;
+  if (!L.collar) return true;
   const torso = torsoSdf(L);
-  const r = TUNNEL.radius + LOCK_WALL;
-  for (let z = 1; z < L.body.top - NECK.length; z += 3) {
-    if (!ringInside(torso, L, r, z)) return false;
+  const { top } = L.body;
+  const hx = USB_OPENING.long / 2 + LOCK_WALL;
+  const hy = USB_OPENING.short / 2 + LOCK_WALL;
+  for (let z = 1; z < top; z += 2) {
+    for (const [sx, sy] of [
+      [-1, -1],
+      [0, -1],
+      [1, -1],
+      [-1, 1],
+      [0, 1],
+      [1, 1],
+    ]) {
+      const x = L.neck.x + sx * hx;
+      const y = L.neck.y + sy * hy;
+      const inCone = Math.hypot(x - L.collar.x, y - L.collar.y) <= L.collar.radius - (top - z);
+      if (!inCone && torso([x, y, z]) > 0) return false;
+    }
   }
   return true;
 }

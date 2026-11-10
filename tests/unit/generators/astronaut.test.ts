@@ -73,22 +73,22 @@ describe("astronaut validate", () => {
     expect(issueKeys({ headBackRound: 60 })).toContain("headBackRound");
   });
 
-  it("keeps the body under a portrait neck and lets Forward move it", () => {
+  it("centres the portrait head over the body on a neck ring", () => {
     const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
     const landscape = layout({});
     const portrait = layout({ screen: "portrait" });
-    // The neck stands on the plug, 9.67 mm behind the face, and the body sits under it as it
-    // sits under the landscape neck.
+    // The body stays where it is in landscape; the head stands 8 mm higher, on the ring.
+    expect(portrait.body).toEqual(landscape.body);
+    expect(portrait.head.cz - portrait.head.hh).toBeCloseTo(portrait.body.top + 8, 5);
+    // The neck stands on the plug, 9.67 mm behind the face. The ring is centred on the upper
+    // volume, 11.58 mm behind it, and reaches round the R9 sleeve's socket and its 1.6 mm wall.
     expect(portrait.neck.y).toBeCloseTo(2.5 + 7.17, 5);
-    expect(portrait.body.cy - portrait.neck.y).toBeCloseTo(landscape.body.cy - landscape.neck.y, 5);
+    expect(portrait.collar!.y).toBeCloseTo(21.25, 5);
+    expect(portrait.collar!.radius).toBeCloseTo(11.58 + 9 + 0.25 + 1.6, 2);
     expect(issueKeys({ screen: "portrait" })).toEqual([]);
-    // Forward moves the volume in portrait too.
-    const back = layout({ screen: "portrait", upperForward: -10 });
-    expect(portrait.body.upper.center[1] - back.body.upper.center[1]).toBeCloseTo(-9, 5);
-    // Moved 2 mm further back, the socket breaks out of the chest's front ...
+    // A body 3 mm further back pushes the ring out behind the 45 mm head: 24.25 + 25.43 > 47.
+    expect(issueKeys({ screen: "portrait", upperForward: -1 })).toEqual([]);
     expect(issueKeys({ screen: "portrait", upperForward: -3 })).toEqual(["upperForward"]);
-    // ... unless the chest is deeper: 60 mm moved 10 mm back puts the head on top of it.
-    expect(issueKeys({ screen: "portrait", upperDepth: 60, upperForward: -10 })).toEqual([]);
   });
 });
 
@@ -204,12 +204,48 @@ describe("astronaut fit", () => {
     });
   });
 
-  it.each(["landscape", "portrait"])(
-    "twists the head onto the body (%s) and locks it",
+  it("twists the head onto the body and locks it", { timeout: 60_000 }, async () => {
+    const result = await buildWith(ID, draft());
+    const L = astronautLayout(paramsFor(ID, draft()));
+    const wasm = await getManifold();
+    withScope((scope) => {
+      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+      const solid = (name: string) =>
+        assembledSolid(
+          wasm,
+          scope,
+          result.parts.find((p) => p.name === name)!,
+        );
+      const body = solid("body");
+      const head = t(
+        wasm.Manifold.union(["head-front", "head-back", "disc-left", "disc-right"].map(solid)),
+      );
+      const [x, y] = [L.neck.x, L.neck.y];
+      // The head turned `turn` degrees back from locked (anticlockwise seen from above)
+      // about the neck and lifted `up` mm off the body.
+      const overlap = (turn: number, up: number) => {
+        const centred = t(head.translate([-x, -y, 0]));
+        const moved = t(t(centred.rotate([0, 0, turn])).translate([x, y, up]));
+        return t(moved.intersect(body)).volume();
+      };
+      for (const up of [8, 4, 2, 1]) {
+        expect(overlap(TWIST.turn, TWIST.rise + up), `in at ${up}`).toBeLessThan(0.5);
+      }
+      for (const f of [1, 0.75, 0.5, 0.25, 0]) {
+        expect(overlap(TWIST.turn * f, TWIST.rise * f), `turn ${f}`).toBeLessThan(0.5);
+      }
+      expect(overlap(0, 1), "pulled locked").toBeGreaterThan(2);
+      expect(overlap(TWIST.turn / 2, TWIST.rise / 2 + 1), "pulled mid-turn").toBeGreaterThan(2);
+    });
+  });
+
+  it(
+    "lowers the portrait head and its plug straight into the neck ring, keyed",
     { timeout: 60_000 },
-    async (screen) => {
-      const result = await buildWith(ID, draft({ screen }));
-      const L = astronautLayout(paramsFor(ID, draft({ screen })));
+    async () => {
+      const values = draft({ screen: "portrait" });
+      const result = await buildWith(ID, values);
+      const L = astronautLayout(paramsFor(ID, values));
       const wasm = await getManifold();
       withScope((scope) => {
         const t = <T extends { delete(): void }>(x: T) => scope.track(x);
@@ -221,32 +257,43 @@ describe("astronaut fit", () => {
           );
         const body = solid("body");
         const shell = ["head-front", "head-back", "disc-left", "disc-right"].map(solid);
-        // In portrait a 12.2 x 6.3 USB-C plug, 25 mm from the port to the end of its strain
-        // relief, hangs from the board's bottom edge through the neck and turns with the head.
+        // A 12.2 x 6.3 USB-C plug, 25 mm from the port to the end of its strain relief, hangs
+        // from the board's bottom edge through the neck.
         const { usb } = L;
         const plug = t(
           t(wasm.Manifold.cube([12.2, 6.3, 25], true)).translate([usb.x, usb.y, usb.z - 12.5]),
         );
-        if (L.portrait) {
-          for (const s of shell) expect(t(plug.intersect(s)).volume(), "plug").toBeLessThan(0.5);
+        for (const s of shell) expect(t(plug.intersect(s)).volume(), "plug").toBeLessThan(0.5);
+        const head = t(wasm.Manifold.union([...shell, plug]));
+        const overlap = (moved: Manifold) => t(moved.intersect(body)).volume();
+        // Straight down from above, all the way to its seat.
+        for (const up of [30, 20, 10, 5, 2, 0]) {
+          expect(overlap(t(head.translate([0, 0, up]))), `lifted ${up}`).toBeLessThan(0.5);
         }
-        const head = t(wasm.Manifold.union(L.portrait ? [...shell, plug] : shell));
+        // Seated, the sleeve's flats stop it turning even without the plug in its opening,
+        // and its round stops it sliding.
         const [x, y] = [L.neck.x, L.neck.y];
-        // The head turned `turn` degrees back from locked (anticlockwise seen from above)
-        // about the neck and lifted `up` mm off the body.
-        const overlap = (turn: number, up: number) => {
-          const centred = t(head.translate([-x, -y, 0]));
-          const moved = t(t(centred.rotate([0, 0, turn])).translate([x, y, up]));
-          return t(moved.intersect(body)).volume();
-        };
-        for (const up of [8, 4, 2, 1]) {
-          expect(overlap(TWIST.turn, TWIST.rise + up), `in at ${up}`).toBeLessThan(0.5);
+        const front = shell[0];
+        for (const turn of [-8, 8]) {
+          const turned = t(
+            t(t(front.translate([-x, -y, 0])).rotate([0, 0, turn])).translate([x, y, 0]),
+          );
+          expect(overlap(turned), `turned ${turn}`).toBeGreaterThan(3);
         }
-        for (const f of [1, 0.75, 0.5, 0.25, 0]) {
-          expect(overlap(TWIST.turn * f, TWIST.rise * f), `turn ${f}`).toBeLessThan(0.5);
+        for (const shift of [
+          [1, 0, 0],
+          [-1, 0, 0],
+          [0, 1, 0],
+          [0, -1, 0],
+        ] as [number, number, number][]) {
+          expect(overlap(t(head.translate(shift))), `shifted ${shift.join(",")}`).toBeGreaterThan(
+            1,
+          );
         }
-        expect(overlap(0, 1), "pulled locked").toBeGreaterThan(2);
-        expect(overlap(TWIST.turn / 2, TWIST.rise / 2 + 1), "pulled mid-turn").toBeGreaterThan(2);
+        // The ring stays under the head: at most 2 mm past its front and back.
+        const ring = t(body.trimByPlane([0, 0, 1], L.body.top + 0.5)).boundingBox();
+        expect(ring.min[1]).toBeGreaterThan(-2);
+        expect(ring.max[1]).toBeLessThan(L.head.depth);
       });
     },
   );
