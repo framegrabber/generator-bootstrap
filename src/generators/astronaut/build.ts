@@ -225,9 +225,9 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     // The neck: a circle 0.5 mm under its radius with a 45° point toward the face (-x in its
     // frame), clipped to the radius so it turns in a round bore; the clip leaves a 0.6 mm sag
     // the width of a short bridge. It runs from inside the bottom wall down to its tip.
-    // Landscape: hooks twist it into the body. Portrait: a sleeve round the plug that pushes
-    // straight into the neck ring's socket, keyed by its flat sides (toward ±x) and square
-    // back; flats on the round alone engage only 0.9 mm and let it turn.
+    // Twist mount: hooks twist it into the body. Portrait ring mount: a sleeve round the plug
+    // that pushes straight into the neck ring's socket, keyed by its flat sides (toward ±x)
+    // and square back; flats on the round alone engage only 0.9 mm and let it turn.
     const r = L.neck.radius;
     const round = t(
       t(
@@ -237,7 +237,7 @@ const build: GeneratorBuild = async (values, { wasm }) => {
         ]),
       ).intersect(t(CS.circle(r, 64))),
     );
-    const neckProfile = L.portrait
+    const neckProfile = L.collar
       ? t(
           t(round.add(t(t(CS.square([r, 2 * r], true)).translate([r / 2, 0])))).intersect(
             t(CS.square([2 * r + 1, 2 * SLEEVE_FLAT], true)),
@@ -247,7 +247,7 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     const neck = t(
       M.union([
         sweep(neckProfile, neckFrame(cz - hh + WALL), WALL + NECK.length),
-        ...(L.portrait ? [] : hooks(r, NECK.length, neckTip)),
+        ...(L.collar ? [] : hooks(r, NECK.length, neckTip)),
       ]),
     );
     const openings: Manifold[] = [
@@ -286,9 +286,9 @@ const build: GeneratorBuild = async (values, { wasm }) => {
       L.seamY + TONGUE.height,
       cz,
     );
-    // The neck joins after the split: in landscape its hooks stand past the seam below the
-    // head. In portrait the plug goes down through the bottom wall and the neck; R1 corners
-    // pass even a square-cornered 12.2 × 6.3 plug body.
+    // The neck joins after the split: with the twist mount its hooks stand past the seam
+    // below the head. In portrait the plug goes down through the bottom wall and the neck; R1
+    // corners pass even a square-cornered 12.2 × 6.3 plug body.
     const plugway = (cs: CrossSection, z0: number, z1: number) =>
       k.prismZ(t(cs.translate([L.neck.x, L.neck.y])), z0, z1);
     const necked = t(M.union([frontRaw, tongue, neck]));
@@ -338,25 +338,25 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     );
 
     // ---- Body: one piece ---------------------------------------------------------------
-    // Landscape: the socket the neck twists into. Portrait: a neck ring on the flat top with
-    // a 45° cone under it, the sleeve's socket in the ring, the plug's opening straight down
-    // through the base, and a notch under the base that leads the cable out to the back.
-    const torso = mesh(bodySdf(L), bodyBounds(L));
-    let solidBody: Manifold;
-    if (L.collar) {
-      const { x, y, radius } = L.collar;
-      const { top } = L.body;
-      const collar = [
-        t(t(M.cylinder(COLLAR.height, radius, radius, 96)).translate([x, y, top])),
-        t(t(M.cylinder(radius, 0.01, radius, 96)).translate([x, y, top - radius + 0.01])),
-      ];
-      const cuts = [
-        sweep(
-          t(neckProfile.offset(COLLAR.fit, "Round", 2, 32)),
-          neckFrame(cz - hh + 0.01),
-          NECK.length + 0.3,
-        ),
-        plugway(plugOpening, -1, top + 1),
+    // Twist mount: the socket the neck twists into. Portrait ring mount: the sleeve's socket
+    // in the neck ring (part of the body's distance function). In portrait a tunnel runs down
+    // through the base (round below a twist socket, so the plug can turn in it; the plug's
+    // opening below the ring), and a notch under the base leads the cable out to the back.
+    const { top } = L.body;
+    const cuts = [
+      L.collar
+        ? sweep(
+            t(neckProfile.offset(COLLAR.fit, "Round", 2, 32)),
+            neckFrame(cz - hh + 0.01),
+            NECK.length + 0.3,
+          )
+        : twistBore(r, NECK.length, neckTip),
+    ];
+    if (L.portrait) {
+      cuts.push(
+        L.collar
+          ? plugway(plugOpening, -1, top + 1)
+          : plugway(t(CS.circle(TUNNEL.radius, 64)), -1, top - NECK.length),
         plugway(
           t(
             t(CS.square([TUNNEL.notch, bodyBounds(L).max[1] - L.neck.y + 2])).translate([
@@ -367,11 +367,9 @@ const build: GeneratorBuild = async (values, { wasm }) => {
           -1,
           TUNNEL.notch,
         ),
-      ];
-      solidBody = t(t(M.union([torso, ...collar])).subtract(t(M.union(cuts))));
-    } else {
-      solidBody = t(torso.subtract(twistBore(r, NECK.length, neckTip)));
+      );
     }
+    const solidBody = t(mesh(bodySdf(L), bodyBounds(L)).subtract(t(M.union(cuts))));
 
     // ---- Chest patch: a flat badge glued into a flat-floored recess ---------------------
     let body = solidBody;
@@ -589,21 +587,21 @@ function assemblyNotes(L: AstronautLayout): string {
     ...(L.portrait
       ? [
           [
-            "Thread the cable's other end down through the hole in the neck ring on top of the",
-            "body and out under the base, and lay it in the notch toward the back.",
-          ],
-          [
-            "Lower the head straight onto the body: its neck, flat on both sides, slides into",
-            "the neck ring. It does not lock; lift it straight off again.",
+            "Thread the cable's other end down through the hole on top of the body and out",
+            "under the base, and lay it in the notch toward the back.",
           ],
         ]
+      : []),
+    L.collar
+      ? [
+          "Lower the head straight onto the body: its neck, flat on both sides, slides into",
+          "the neck ring. It does not lock; lift it straight off again.",
+        ]
       : [
-          [
-            `Set the head on the body turned about ${TWIST.turn} degrees anticlockwise (seen`,
-            "from above), so the notches in the socket line up with the hooks on the neck,",
-            "push it down, and turn it clockwise until it faces forward and stops.",
-          ],
-        ]),
+          `Set the head on the body turned about ${TWIST.turn} degrees anticlockwise (seen`,
+          "from above), so the notches in the socket line up with the hooks on the neck,",
+          "push it down, and turn it clockwise until it faces forward and stops.",
+        ],
     ...(L.patch
       ? [["Glue the chest badge into the recess on the chest, its flat back on the floor."]]
       : []),

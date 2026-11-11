@@ -74,3 +74,10 @@ Portrait, second follow-up (user, 2026-11-10): still unhappy with the head-to-bo
 - The plug's 13 × 7 opening continues straight down through the body and out of the base, with the 5 mm notch to the back. The round tunnel is gone, since nothing turns in it.
 - Choices made without the user: the head is not locked in portrait (it rests in the socket, held by its weight and the plug); the ring is not a param; validation reports a body moved so far back that the ring would stick out more than 2 mm behind the head, and a tunnel that breaks out of the body's front.
 - Not checked: whether the cable's far plug passes the 13 × 7 tunnel. A USB-C plug the size of the board-side one does; a USB-A plug does not, so such a cable has to be threaded from below, C plug first.
+
+Portrait, third follow-up (user, 2026-11-11): the ring "doesn't fit the style yet"; asked whether the twist mount could return with the neck hole offset to the front and a bigger upper body, then whether the ring could blend into the body. After a side-by-side of the blended ring, the twist with a 60 mm chest, and the twist with a boxier 48 mm chest, the user said all can be made to work and wants to keep playing with every variant, with wider limits on the body volumes. Built:
+
+- "Head mount" in portrait: neck ring (push on, the default, since it validates and centres the head at the default body) or twist-on (the earlier portrait: neck with hooks on the plug, round tunnel, the body under the plug with Forward and Depth free).
+- The ring is part of the body's distance function now, blended into the torso over "Neck ring blend" (default 8 mm, 0 to 30).
+- Wider limits: body widths 25 to 140, depths 20 to 120, heights 10 to 120, Forward ±40, upper Offset −60 to 80, Volume blend to 50. Validation, not the limits, reports what does not fit.
+- Not decided: which mount stays. Remove the other one, its param, and its tests when the user picks.

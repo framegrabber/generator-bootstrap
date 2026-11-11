@@ -90,6 +90,24 @@ describe("astronaut validate", () => {
     expect(issueKeys({ screen: "portrait", upperForward: -1 })).toEqual([]);
     expect(issueKeys({ screen: "portrait", upperForward: -3 })).toEqual(["upperForward"]);
   });
+
+  it("puts the body under the plug with the portrait twist mount, and Forward moves it", () => {
+    const twist = { screen: "portrait", portraitMount: "twist" };
+    const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
+    const landscape = layout({});
+    const portrait = layout(twist);
+    // No ring; the body sits under the neck on the plug as it sits under the landscape neck.
+    expect(portrait.collar).toBeNull();
+    expect(portrait.head.cz - portrait.head.hh).toBeCloseTo(portrait.body.top, 5);
+    expect(portrait.body.cy - portrait.neck.y).toBeCloseTo(landscape.body.cy - landscape.neck.y, 5);
+    expect(issueKeys(twist)).toEqual([]);
+    const back = layout({ ...twist, upperForward: -10 });
+    expect(portrait.body.upper.center[1] - back.body.upper.center[1]).toBeCloseTo(-9, 5);
+    // Moved 2 mm back, the socket breaks out of the chest's front, unless the chest is deeper:
+    // 60 mm moved 10 mm back puts the head on top of it.
+    expect(issueKeys({ ...twist, upperForward: -3 })).toEqual(["upperForward"]);
+    expect(issueKeys({ ...twist, upperDepth: 60, upperForward: -10 })).toEqual([]);
+  });
 });
 
 describe("astronaut fit", () => {
@@ -204,9 +222,12 @@ describe("astronaut fit", () => {
     });
   });
 
-  it("twists the head onto the body and locks it", { timeout: 60_000 }, async () => {
-    const result = await buildWith(ID, draft());
-    const L = astronautLayout(paramsFor(ID, draft()));
+  it.each([
+    ["landscape", {}],
+    ["portrait", { screen: "portrait", portraitMount: "twist" }],
+  ])("twists the head onto the body (%s) and locks it", { timeout: 60_000 }, async (_, mount) => {
+    const result = await buildWith(ID, draft(mount));
+    const L = astronautLayout(paramsFor(ID, draft(mount)));
     const wasm = await getManifold();
     withScope((scope) => {
       const t = <T extends { delete(): void }>(x: T) => scope.track(x);
@@ -217,9 +238,17 @@ describe("astronaut fit", () => {
           result.parts.find((p) => p.name === name)!,
         );
       const body = solid("body");
-      const head = t(
-        wasm.Manifold.union(["head-front", "head-back", "disc-left", "disc-right"].map(solid)),
+      const shell = ["head-front", "head-back", "disc-left", "disc-right"].map(solid);
+      // In portrait a 12.2 x 6.3 USB-C plug, 25 mm from the port to the end of its strain
+      // relief, hangs from the board's bottom edge through the neck and turns with the head.
+      const { usb } = L;
+      const plug = t(
+        t(wasm.Manifold.cube([12.2, 6.3, 25], true)).translate([usb.x, usb.y, usb.z - 12.5]),
       );
+      if (L.portrait) {
+        for (const s of shell) expect(t(plug.intersect(s)).volume(), "plug").toBeLessThan(0.5);
+      }
+      const head = t(wasm.Manifold.union(L.portrait ? [...shell, plug] : shell));
       const [x, y] = [L.neck.x, L.neck.y];
       // The head turned `turn` degrees back from locked (anticlockwise seen from above)
       // about the neck and lifted `up` mm off the body.

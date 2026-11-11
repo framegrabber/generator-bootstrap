@@ -3,6 +3,8 @@ import { DEFAULT_FONT } from "../../fonts/bundled";
 import { astronautLayout, MIN_DISC_RADIUS, MIN_HEAD_DEPTH, validateLayout } from "./layout";
 
 const hasPatch = (values: Params) => values.chestPatch === true;
+const isPortrait = (values: Params) => values.screen === "portrait";
+const hasNeckRing = (values: Params) => isPortrait(values) && values.portraitMount === "ring";
 const hasLettering = (values: Params) =>
   hasPatch(values) && typeof values.patchText === "string" && values.patchText.trim() !== "";
 
@@ -88,7 +90,24 @@ const astronaut: GeneratorDef = {
         { value: "landscape", label: "Landscape (USB-C right)" },
         { value: "portrait", label: "Portrait (USB-C down)" },
       ],
-      help: "Landscape: the head twist-locks onto the body. Portrait: the plug hangs down through the head's neck, the head pushes straight into a neck ring on the body, and the cable runs out under the base.",
+      help: "Portrait runs the plug down through the head's neck and the cable out under the base.",
+    },
+    {
+      kind: "select",
+      key: "portraitMount",
+      label: "Head mount",
+      group: "Head",
+      default: "ring",
+      options: [
+        { value: "ring", label: "Neck ring (push on)" },
+        { value: "twist", label: "Twist-on" },
+      ],
+      help: "Neck ring: the body stays centred under the head and carries a ring the head pushes into. Twist-on: the head locks as in landscape, turning about the plug just behind the face, so the body sits under the plug; move and deepen the upper body to centre the head.",
+      visibleWhen: isPortrait,
+    },
+    {
+      ...mm("collarBlend", "Neck ring blend", "Head", 8, 0, 30, "Fillet between ring and body."),
+      visibleWhen: hasNeckRing,
     },
     mm(
       "headMarginSide",
@@ -133,15 +152,15 @@ const astronaut: GeneratorDef = {
     ),
     mm("headFrontEdge", "Front edge", "Head", 2.5, 0.5, 6, "Rounding of the rim around the face."),
 
-    mm("lowerWidth", "Width", "Lower body", 70, 25, 90),
-    mm("lowerDepth", "Depth", "Lower body", 60, 20, 70),
+    mm("lowerWidth", "Width", "Lower body", 70, 25, 140),
+    mm("lowerDepth", "Depth", "Lower body", 60, 20, 120),
     mm(
       "lowerHeight",
       "Height",
       "Lower body",
       45,
       10,
-      70,
+      120,
       "Top of the lower volume above the base.",
     ),
     pct("lowerRoundness", "Roundness", "Lower body", 100, "0 is box-like, 100 an ellipsoid."),
@@ -150,20 +169,20 @@ const astronaut: GeneratorDef = {
       "Forward",
       "Lower body",
       2,
-      -10,
-      10,
+      -40,
+      40,
       "Moves the volume toward the face: a belly.",
     ),
 
-    mm("upperWidth", "Width", "Upper body", 54, 25, 90),
-    mm("upperDepth", "Depth", "Upper body", 40, 20, 70),
+    mm("upperWidth", "Width", "Upper body", 54, 25, 140),
+    mm("upperDepth", "Depth", "Upper body", 40, 20, 120),
     mm(
       "upperHeight",
       "Height",
       "Upper body",
       45,
       10,
-      80,
+      120,
       "The torso is cut flat 0.4 of it above its centre.",
     ),
     mm(
@@ -171,12 +190,12 @@ const astronaut: GeneratorDef = {
       "Offset",
       "Upper body",
       10,
-      -30,
-      40,
+      -60,
+      80,
       "Centre above (+) or below (−) the lower volume's top; the head and shoulders move with it.",
     ),
     pct("upperRoundness", "Roundness", "Upper body", 90, "0 is box-like, 100 an ellipsoid."),
-    mm("upperForward", "Forward", "Upper body", -1, -10, 10, "Leans the chest toward the face."),
+    mm("upperForward", "Forward", "Upper body", -1, -40, 40, "Leans the chest toward the face."),
 
     mm(
       "stackBlend",
@@ -184,7 +203,7 @@ const astronaut: GeneratorDef = {
       "Body",
       25,
       0,
-      25,
+      50,
       "Fillet between the lower and upper volume.",
     ),
     mm("blend", "Joint softness", "Body", 1, 0, 10, "Fillet where arms and legs meet the torso."),
