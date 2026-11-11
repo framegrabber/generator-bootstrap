@@ -22,10 +22,17 @@ const SHAPE: Params = {
   headDepth: 45,
   headCorner: 50,
   headBackRound: 20,
+  lowerWidth: 70,
+  lowerDepth: 60,
   lowerForward: 2,
   upperWidth: 54,
   upperDepth: 40,
   upperOffset: 10,
+  armAngle: 35,
+  armForward: 15,
+  armWidth: 18,
+  patchShape: "rounded",
+  patchText: "",
 };
 const shape = (overrides: Params = {}) => paramsFor(ID, { ...SHAPE, ...overrides });
 // Coarse meshes keep the build tests fast; the fittings are exact solids at any detail.
@@ -60,34 +67,6 @@ describe("astronaut head", () => {
       }
     },
   );
-
-  it("pulls the front forward below the screen only, as a chin", { timeout: 30_000 }, async () => {
-    const values = draft({ screen: "portrait", chin: 3 });
-    const result = await buildWith(ID, values);
-    const L = astronautLayout(paramsFor(ID, values));
-    const { cz, hh, view } = L.head;
-    expect(result.warnings?.join(" ")).toContain("supports");
-    const wasm = await getManifold();
-    withScope((scope) => {
-      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
-      const front = assembledSolid(
-        wasm,
-        scope,
-        result.parts.find((p) => p.name === "head-front")!,
-      );
-      // A box in front of the face plane, from y = -2.8 to -0.2, over a patch of the face.
-      const filled = (x: number, z0: number, z1: number) => {
-        const box = t(
-          t(wasm.Manifold.cube([2 * x, 2.6, z1 - z0], true)).translate([0, -1.5, (z0 + z1) / 2]),
-        );
-        return t(front.intersect(box)).volume() / box.volume();
-      };
-      expect(front.boundingBox().min[1]).toBeCloseTo(-3, 0);
-      // Solid 3 to 6 mm above the head's bottom; nothing in front of the screen or above it.
-      expect(filled(15, cz - hh + 3, cz - hh + 6)).toBeGreaterThan(0.98);
-      expect(filled(view.hx + 2, cz - view.hz - 1, cz + hh)).toBeLessThan(0.001);
-    });
-  });
 });
 
 describe("astronaut validate", () => {
@@ -476,6 +455,11 @@ describe("astronaut fit", () => {
         expect(l.max[0]).toBeLessThan(b.max[0]);
         expect(l.min[1]).toBeGreaterThan(b.min[1]);
         expect(l.max[1]).toBeLessThan(b.max[1]);
+        // Centred on the badge's outline, except on the shield: its point pulls the outline's
+        // middle down, so the lettering sits a quarter of the box's half height (2 mm) above
+        // it, over the middle of the shield's area.
+        const above = (l.min[1] + l.max[1]) / 2 - (b.min[1] + b.max[1]) / 2;
+        expect(above).toBeCloseTo(patchShape === "shield" ? 0.275 * L.patch!.hz : 0, 0);
       });
     },
   );

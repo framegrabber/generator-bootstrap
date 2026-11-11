@@ -59,6 +59,12 @@ const LETTER_WIDTH: Record<PatchShape, number> = {
   hexagon: 0.7,
   shield: 0.8,
 };
+/**
+ * How far above the shape's middle the lettering sits, as a share of the badge box's half
+ * height. The shield's point pulls its outline's middle down; its area's centre lies about a
+ * quarter of that half height higher, and lettering centred there looks centred.
+ */
+const LETTER_RISE: Record<PatchShape, number> = { rounded: 0, circle: 0, hexagon: 0, shield: 0.25 };
 
 /** The badge's outline in the face plane, centred on its box (half sizes hx, hz). */
 function patchOutline({ t, CS, roundedRect }: Tools, { shape, hx, hz }: Patch) {
@@ -106,11 +112,6 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     const edge = L.meshEdge;
     const { hw, hh, depth, cz, corner } = L.head;
     const warnings: string[] = [];
-    if (L.head.chin > 0) {
-      warnings.push(
-        "The chin stands out in front of the face, so head-front rests on the chin and needs supports under the face.",
-      );
-    }
 
     // Level sets close off flat wherever the surface reaches the bounds, so leave each shape
     // a grid cell and a millimetre of room.
@@ -150,8 +151,7 @@ const build: GeneratorBuild = async (values, { wasm }) => {
 
     // ---- Head: hollow shell with its fittings, split at the seam ------------------------
     const outer = mesh(headSdf(L), headBounds(L));
-    // The hollow follows the head without its chin, so the chin is solid.
-    const inner = mesh(headSdf(L, false), headBounds(L), WALL);
+    const inner = mesh(headSdf(L), headBounds(L), WALL);
     const { glass, view, glassY } = L.head;
     const glassCS = t(
       k
@@ -442,7 +442,9 @@ const build: GeneratorBuild = async (values, { wasm }) => {
         let capHeight = PATCH.cap * height;
         const { min: lo, max: hi } = outline(capHeight).bounds();
         if (hi[0] - lo[0] > room) capHeight *= room / (hi[0] - lo[0]);
-        const centred = t(outline(capHeight).translate([0, -capHeight / 2]));
+        const centred = t(
+          outline(capHeight).translate([0, LETTER_RISE[P.shape] * P.hz - capHeight / 2]),
+        );
         letters = sweep(centred, plane(front), PATCH.letters);
       }
     }
@@ -629,14 +631,9 @@ function assemblyNotes(L: AstronautLayout): string {
     "Print orientation (already set in the files):",
     "- body: standing on its base.",
     ...badge,
-    L.head.chin > 0
-      ? "- head-front: face down, resting on the chin; it needs supports under the face."
-      : "- head-front: face down.",
-    "- head-back: back down, seam up.",
+    "- head-front: face down. head-back: back down, seam up.",
     "- disc-left, disc-right: outer face down, bore up.",
-    L.head.chin > 0
-      ? "Nothing else needs supports; the bosses and the neck have 45-degree points for that."
-      : "No supports are needed; the bosses and the neck have 45-degree points for that.",
+    "No supports are needed; the bosses and the neck have 45-degree points for that.",
     "",
     "Assembly:",
     ...steps.flatMap((lines, i) => lines.map((line, j) => (j === 0 ? `${i + 1}. ` : "   ") + line)),

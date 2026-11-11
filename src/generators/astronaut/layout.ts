@@ -113,11 +113,6 @@ export const PIN_HOLE = 1.6;
 export const POCKET = { depth: 1.5, fit: 0.3 };
 /** The window is this much larger than the visible area all round. */
 export const WINDOW_MARGIN = 0.6;
-/**
- * The chin's ramp starts this far below the window. There are at least 11.3 mm below the
- * window, so the param's 8 mm limit always leaves the ramp and a flat front.
- */
-const CHIN_MARGIN = 2;
 
 /**
  * Board stack behind the glass front: board to its standoff tips, the battery, the speakers
@@ -176,11 +171,6 @@ export type AstronautLayout = {
     view: Rect;
     /** Depth of the glass front behind the face: the front wall plus the screen recess. */
     glassY: number;
-    /**
-     * How far the front stands out below the screen. The chin is the head's outline pulled
-     * `chin` forward, under a 45° ramp that starts `CHIN_MARGIN` below the window.
-     */
-    chin: number;
   };
   /** Where the head splits into its front and back half. */
   seamY: number;
@@ -385,7 +375,6 @@ export function astronautLayout(values: Params): AstronautLayout {
       glass: board.glass,
       view: board.view,
       glassY,
-      chin: num(values, "chin"),
     },
     seamY,
     body: {
@@ -658,17 +647,10 @@ const mirrored = (side: (s: 1 | -1) => Sdf): Sdf => {
   return (p) => (p[0] < 0 ? left(p) : right(p));
 };
 
-/**
- * The head's outside: a flat rim around the face, then a back rounded on `backRadius`, and the
- * chin in front of the face (left out with `chin` false, for the hollow, so the chin is solid).
- */
-export function headSdf(L: AstronautLayout, chin = true): Sdf {
+/** The head's outside: a flat rim around the face, then a back rounded on `backRadius`. */
+export function headSdf(L: AstronautLayout): Sdf {
   const { hw, hh, depth, cz, corner, frontEdge, backRadius: R } = L.head;
-  const outline = (x: number, z: number) => rect2(x, z, 0, cz, hw, hh, corner);
-  const front = extrudeY(outline, 0, RIM + 1, frontEdge);
-  const d = chin ? L.head.chin : 0;
-  const pulled = extrudeY(outline, -d, RIM + 1, frontEdge);
-  const rampZ = cz - L.head.view.hz - WINDOW_MARGIN - CHIN_MARGIN;
+  const front = extrudeY((x, z) => rect2(x, z, 0, cz, hw, hh, corner), 0, RIM + 1, frontEdge);
   const back: Sdf = (p) => {
     // The outline shrinks on a quarter circle over the last R mm: a pillow, not a box.
     const t = Math.max(p[1] - (depth - R), 0);
@@ -677,9 +659,7 @@ export function headSdf(L: AstronautLayout, chin = true): Sdf {
     return Math.max(d2, p[1] - depth, RIM - 2 - p[1]);
   };
   // Plain union: rim and back share the outline where they overlap, so no crease to soften.
-  if (d <= 0) return (p) => Math.min(front(p), back(p));
-  return (p) =>
-    Math.min(front(p), back(p), Math.max(pulled(p), (p[2] - rampZ - p[1]) * Math.SQRT1_2));
+  return (p) => Math.min(front(p), back(p));
 }
 
 /**
@@ -794,7 +774,7 @@ export function chestSurface(L: AstronautLayout, points: readonly [number, numbe
 
 export function headBounds(L: AstronautLayout): Box3 {
   const { hw, hh, depth, cz } = L.head;
-  return { min: [-hw, -L.head.chin, cz - hh], max: [hw, depth, cz + hh] };
+  return { min: [-hw, 0, cz - hh], max: [hw, depth, cz + hh] };
 }
 
 /** The extent of a volume along `axis`: [min, max]. */
