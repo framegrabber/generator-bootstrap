@@ -14,8 +14,22 @@ import {
 import { buildWith, paramsFor } from "./helpers";
 
 const ID = "astronaut";
+// The shape these tests measure, pinned here so the app's defaults can change freely.
+const SHAPE: Params = {
+  screen: "landscape",
+  collarBlend: 8,
+  screenRecess: 0,
+  headDepth: 45,
+  headCorner: 50,
+  headBackRound: 20,
+  lowerForward: 2,
+  upperWidth: 54,
+  upperDepth: 40,
+  upperOffset: 10,
+};
+const shape = (overrides: Params = {}) => paramsFor(ID, { ...SHAPE, ...overrides });
 // Coarse meshes keep the build tests fast; the fittings are exact solids at any detail.
-const draft = (overrides: Params = {}): Params => ({ meshEdge: 1.2, ...overrides });
+const draft = (overrides: Params = {}): Params => ({ ...SHAPE, meshEdge: 1.2, ...overrides });
 
 describe("astronaut head", () => {
   // The 2.8" board: glass 50.54 x 73.06 (the long side toward USB-C), its centre 3 mm toward
@@ -46,12 +60,39 @@ describe("astronaut head", () => {
       }
     },
   );
+
+  it("pulls the front forward below the screen only, as a chin", { timeout: 30_000 }, async () => {
+    const values = draft({ screen: "portrait", chin: 3 });
+    const result = await buildWith(ID, values);
+    const L = astronautLayout(paramsFor(ID, values));
+    const { cz, hh, view } = L.head;
+    expect(result.warnings?.join(" ")).toContain("supports");
+    const wasm = await getManifold();
+    withScope((scope) => {
+      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+      const front = assembledSolid(
+        wasm,
+        scope,
+        result.parts.find((p) => p.name === "head-front")!,
+      );
+      // A box in front of the face plane, from y = -2.8 to -0.2, over a patch of the face.
+      const filled = (x: number, z0: number, z1: number) => {
+        const box = t(
+          t(wasm.Manifold.cube([2 * x, 2.6, z1 - z0], true)).translate([0, -1.5, (z0 + z1) / 2]),
+        );
+        return t(front.intersect(box)).volume() / box.volume();
+      };
+      expect(front.boundingBox().min[1]).toBeCloseTo(-3, 0);
+      // Solid 3 to 6 mm above the head's bottom; nothing in front of the screen or above it.
+      expect(filled(15, cz - hh + 3, cz - hh + 6)).toBeGreaterThan(0.98);
+      expect(filled(view.hx + 2, cz - view.hz - 1, cz + hh)).toBeLessThan(0.001);
+    });
+  });
 });
 
 describe("astronaut validate", () => {
   const def = findGenerator(ID)!;
-  const issueKeys = (overrides: Params) =>
-    validateParams(def, paramsFor(ID, overrides)).map((i) => i.key);
+  const issueKeys = (overrides: Params) => validateParams(def, shape(overrides)).map((i) => i.key);
 
   it("rejects an upper volume that floats free of the lower one", () => {
     // Upper half height 22.5: an offset of 25 leaves a 2.5 mm gap between the volumes.
@@ -74,7 +115,7 @@ describe("astronaut validate", () => {
   });
 
   it("centres the portrait head over the body on a neck ring", () => {
-    const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
+    const layout = (overrides: Params) => astronautLayout(shape(overrides));
     const landscape = layout({});
     const portrait = layout({ screen: "portrait" });
     // The body stays where it is in landscape; the head stands 8 mm higher, on the ring.
@@ -93,7 +134,7 @@ describe("astronaut validate", () => {
 
   it("puts the body under the plug with the portrait twist mount, and Forward moves it", () => {
     const twist = { screen: "portrait", portraitMount: "twist" };
-    const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
+    const layout = (overrides: Params) => astronautLayout(shape(overrides));
     const landscape = layout({});
     const portrait = layout(twist);
     // No ring; the body sits under the neck on the plug as it sits under the landscape neck.
@@ -110,7 +151,7 @@ describe("astronaut validate", () => {
   });
 
   it("hangs the body on the board, so the head grows backward and forward over it", () => {
-    const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
+    const layout = (overrides: Params) => astronautLayout(shape(overrides));
     const base = layout({ screen: "portrait" });
     // A deeper head leaves the body, plug, and ring where they are.
     const deep = layout({ screen: "portrait", headDepth: 55 });

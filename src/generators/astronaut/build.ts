@@ -41,6 +41,7 @@ import {
   TUNNEL,
   TWIST,
   USB_OPENING,
+  WINDOW_MARGIN,
   WALL,
   type AstronautLayout,
   type Patch,
@@ -105,6 +106,11 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     const edge = L.meshEdge;
     const { hw, hh, depth, cz, corner } = L.head;
     const warnings: string[] = [];
+    if (L.head.chin > 0) {
+      warnings.push(
+        "The chin stands out in front of the face, so head-front rests on the chin and needs supports under the face.",
+      );
+    }
 
     // Level sets close off flat wherever the surface reaches the bounds, so leave each shape
     // a grid cell and a millimetre of room.
@@ -144,14 +150,19 @@ const build: GeneratorBuild = async (values, { wasm }) => {
 
     // ---- Head: hollow shell with its fittings, split at the seam ------------------------
     const outer = mesh(headSdf(L), headBounds(L));
-    const inner = mesh(headSdf(L), headBounds(L), WALL);
+    // The hollow follows the head without its chin, so the chin is solid.
+    const inner = mesh(headSdf(L, false), headBounds(L), WALL);
     const { glass, view, glassY } = L.head;
     const glassCS = t(
       k
         .roundedRect(2 * (glass.hx + POCKET.fit), 2 * (glass.hz + POCKET.fit), 2)
         .translate([glass.cx, glass.cz]),
     );
-    const windowCS = k.roundedRect(2 * (view.hx + 0.6), 2 * (view.hz + 0.6), 2.5);
+    const windowCS = k.roundedRect(
+      2 * (view.hx + WINDOW_MARGIN),
+      2 * (view.hz + WINDOW_MARGIN),
+      2.5,
+    );
     const inside = t(outline.offset(-(WALL - 0.3), "Round", 2, 32));
     // A shallow frame around the glass locates the board on the inside of the front wall; a
     // screen recess fills the front solid up to the glass, around the window.
@@ -618,9 +629,14 @@ function assemblyNotes(L: AstronautLayout): string {
     "Print orientation (already set in the files):",
     "- body: standing on its base.",
     ...badge,
-    "- head-front: face down. head-back: back down, seam up.",
+    L.head.chin > 0
+      ? "- head-front: face down, resting on the chin; it needs supports under the face."
+      : "- head-front: face down.",
+    "- head-back: back down, seam up.",
     "- disc-left, disc-right: outer face down, bore up.",
-    "No supports are needed; the bosses and the neck have 45-degree points for that.",
+    L.head.chin > 0
+      ? "Nothing else needs supports; the bosses and the neck have 45-degree points for that."
+      : "No supports are needed; the bosses and the neck have 45-degree points for that.",
     "",
     "Assembly:",
     ...steps.flatMap((lines, i) => lines.map((line, j) => (j === 0 ? `${i + 1}. ` : "   ") + line)),
