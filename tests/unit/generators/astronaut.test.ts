@@ -129,6 +129,33 @@ describe("astronaut validate", () => {
     expect(issueKeys({ ...twist, upperDepth: 60, upperForward: -10 })).toEqual([]);
   });
 
+  it("moves the head on the body without changing the body's shape", () => {
+    const twist = { screen: "portrait", portraitMount: "twist" };
+    const layout = (overrides: Params) => astronautLayout(shape(overrides));
+    const base = layout(twist);
+    const moved = layout({ ...twist, headPosition: 1 });
+    // The head, its neck, and the plug stay; every part of the body lies 1 mm further back.
+    expect(moved.neck).toEqual(base.neck);
+    expect(moved.head).toEqual(base.head);
+    const ys = (L: typeof base) => [
+      L.body.lower.center[1],
+      L.body.upper.center[1],
+      L.arms.shoulder[1],
+      L.arms.hand[1],
+      L.legs.hip[1],
+      L.legs.toe[1],
+    ];
+    ys(moved).forEach((y, i) => expect(y - ys(base)[i]).toBeCloseTo(1, 5));
+    // The hole stops 12.45 mm behind the top's front edge, where its wall would break out.
+    expect(issueKeys({ ...twist, headPosition: 1 })).toEqual([]);
+    expect(issueKeys({ ...twist, headPosition: 1.5 })).toEqual(["upperForward"]);
+    // Landscape too: the neck stays with the head.
+    expect(layout({ headPosition: 3 }).neck).toEqual(layout({}).neck);
+    // The ring mount's ring follows the body, until it would stick out in front of the head.
+    expect(issueKeys({ screen: "portrait", headPosition: -5 })).toEqual([]);
+    expect(issueKeys({ screen: "portrait", headPosition: -14 })).toContain("headPosition");
+  });
+
   it("hangs the body on the board, so the head grows backward and forward over it", () => {
     const layout = (overrides: Params) => astronautLayout(shape(overrides));
     const base = layout({ screen: "portrait" });

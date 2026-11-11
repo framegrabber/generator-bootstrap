@@ -110,6 +110,15 @@ const astronaut: GeneratorDef = {
       visibleWhen: hasNeckRing,
     },
     mm(
+      "headPosition",
+      "Head position",
+      "Head",
+      0,
+      -30,
+      30,
+      "Moves the head forward (+) or back (−) on the body. The body keeps its shape and posture; only where the neck meets it changes.",
+    ),
+    mm(
       "headMarginSide",
       "Extra width",
       "Head",

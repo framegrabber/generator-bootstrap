@@ -268,7 +268,10 @@ export function astronautLayout(values: Params): AstronautLayout {
   // volume reaches a quarter of its height below the base, so the base cut leaves a broad flat
   // foot; the upper one is centred `upperOffset` above the lower one's top, and the torso is
   // cut flat where the upper one is 0.4 of its height above its centre, just under its peak.
-  const cy = glassY + BODY_BEHIND_GLASS;
+  // "Head position" moves the head forward on the body: the head is the frame, so the whole
+  // body moves back, shape and posture unchanged, and the neck stays with the head.
+  const bodyY = glassY + BODY_BEHIND_GLASS;
+  const cy = bodyY + num(values, "headPosition");
   const volume = (prefix: "lower" | "upper", z0: number, z1: number): Volume => ({
     center: [0, cy - num(values, `${prefix}Forward`), (z0 + z1) / 2],
     half: [num(values, `${prefix}Width`) / 2, num(values, `${prefix}Depth`) / 2, (z1 - z0) / 2],
@@ -339,7 +342,7 @@ export function astronautLayout(values: Params): AstronautLayout {
   // on the upper volume, reaches round its socket.
   const neck = portrait
     ? { x: usb.x, y: usb.y, radius: PLUG_NECK_RADIUS }
-    : { x: 0, y: Math.min(seamY - NECK.radius - 0.5, cy), radius: NECK.radius };
+    : { x: 0, y: Math.min(seamY - NECK.radius - 0.5, bodyY), radius: NECK.radius };
   const collar = ring
     ? {
         x: 0,
@@ -516,13 +519,19 @@ export function validateLayout(L: AstronautLayout): ValidationIssue[] {
           },
     );
   }
-  // The neck ring reaches from the plug, just behind the face, as far back again past the
-  // upper volume's centre, so a body far back makes it stick out behind the head.
+  // The neck ring reaches from the plug, just behind the face, as far again past the upper
+  // volume's centre, so a body far back or far forward makes it stick out of the head.
   if (L.collar && L.collar.y + L.collar.radius > depth + 2) {
     issues.push({
       key: "upperForward",
       message:
         "The neck ring sticks out behind the head; move the upper volume forward under the head.",
+    });
+  }
+  if (L.collar && L.collar.y - L.collar.radius < -2) {
+    issues.push({
+      key: "headPosition",
+      message: "The neck ring sticks out in front of the head; move the head forward on the body.",
     });
   }
   if (!tunnelFits(L)) {
