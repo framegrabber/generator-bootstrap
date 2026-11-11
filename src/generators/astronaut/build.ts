@@ -145,18 +145,21 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     // ---- Head: hollow shell with its fittings, split at the seam ------------------------
     const outer = mesh(headSdf(L), headBounds(L));
     const inner = mesh(headSdf(L), headBounds(L), WALL);
-    const { glass, view } = L.head;
+    const { glass, view, glassY } = L.head;
     const glassCS = t(
       k
         .roundedRect(2 * (glass.hx + POCKET.fit), 2 * (glass.hz + POCKET.fit), 2)
         .translate([glass.cx, glass.cz]),
     );
-    // A shallow frame around the glass locates the board on the inside of the front wall.
-    const pocketFrame = k.prismY(
-      t(t(outline.offset(-(WALL - 0.3), "Round", 2, 32)).subtract(glassCS)),
-      WALL - 0.3,
-      WALL + POCKET.depth,
-      cz,
+    const windowCS = k.roundedRect(2 * (view.hx + 0.6), 2 * (view.hz + 0.6), 2.5);
+    const inside = t(outline.offset(-(WALL - 0.3), "Round", 2, 32));
+    // A shallow frame around the glass locates the board on the inside of the front wall; a
+    // screen recess fills the front solid up to the glass, around the window.
+    const pocketFrame = t(
+      M.union([
+        k.prismY(t(inside.subtract(windowCS)), WALL - 0.3, glassY + 0.01, cz),
+        k.prismY(t(inside.subtract(glassCS)), glassY, glassY + POCKET.depth, cz),
+      ]),
     );
     // Twist-lock hooks, one on each end of a profile's ±x axis (`end` -1 and +1), `point` from
     // the axis; see TWIST. Their frame starts at the face the boss or neck leaves, z outward,
@@ -251,9 +254,9 @@ const build: GeneratorBuild = async (values, { wasm }) => {
       ]),
     );
     const openings: Manifold[] = [
-      k.prismY(k.roundedRect(2 * (view.hx + 0.6), 2 * (view.hz + 0.6), 2.5), -1, WALL + 0.5, cz),
+      k.prismY(windowCS, -1, glassY + 0.5, cz),
       // The module is as wide as the inside, so its pocket shaves the wall where it is tight.
-      k.prismY(glassCS, WALL - 0.01, WALL + 10.5, cz),
+      k.prismY(glassCS, glassY - 0.01, glassY + 10.5, cz),
       // Landscape: the USB-C opening in the right side, pin holes up through the top.
       // Portrait: the plug goes down the neck, pin holes out through the right side.
       ...(L.portrait
@@ -490,8 +493,8 @@ const build: GeneratorBuild = async (values, { wasm }) => {
     // Stand-ins: the glass behind the window and the eyes on it.
     const screen = k.prismY(
       t(k.roundedRect(2 * glass.hx, 2 * glass.hz, 2).translate([glass.cx, glass.cz])),
-      WALL,
-      WALL + 1.6,
+      glassY,
+      glassY + 1.6,
       cz,
     );
     const eyes = t(
@@ -499,8 +502,8 @@ const build: GeneratorBuild = async (values, { wasm }) => {
         eyeRects(L).map((e) =>
           k.prismY(
             t(k.roundedRect(2 * e.hx, 2 * e.hz, Math.min(e.hx, e.hz)).translate([e.x, e.z - cz])),
-            WALL - 0.4,
-            WALL + 0.1,
+            glassY - 0.4,
+            glassY + 0.1,
             cz,
           ),
         ),

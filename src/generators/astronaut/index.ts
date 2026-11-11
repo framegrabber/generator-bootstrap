@@ -128,6 +128,15 @@ const astronaut: GeneratorDef = {
       "Added top and bottom beyond what the board needs.",
     ),
     mm(
+      "screenRecess",
+      "Screen recess",
+      "Head",
+      0,
+      0,
+      10,
+      "Thickens the head in front of the screen: the face moves forward over the neck and body, which stay with the board.",
+    ),
+    mm(
       "headDepth",
       "Depth",
       "Head",

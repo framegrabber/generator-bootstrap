@@ -115,9 +115,16 @@ export const POCKET = { depth: 1.5, fit: 0.3 };
 /**
  * Board stack behind the glass front: board to its standoff tips, the battery, the speakers
  * flat on the back wall with their fences, clearances, the back wall, and 2 mm of rounding.
+ * A screen recess adds to it.
  */
 export const MIN_HEAD_DEPTH =
   WALL + BOARD.thickness + BATTERY[0] + (BOARD.speakers?.size[2] ?? 0) + 3 + WALL + 2;
+/**
+ * The torso's centre behind the glass front. The body hangs on the board, not on the head's
+ * size, so Depth grows the head backward and the screen recess grows it forward over a body,
+ * neck, and plug that stay put.
+ */
+const BODY_BEHIND_GLASS = 17.75;
 
 type Rect = { cx: number; cz: number; hx: number; hz: number };
 /** A rectangle in the face plane: centre and half sizes (x, z). */
@@ -160,6 +167,8 @@ export type AstronautLayout = {
     /** The board's glass and visible area; centres relative to the face centre. */
     glass: Rect;
     view: Rect;
+    /** Depth of the glass front behind the face: the front wall plus the screen recess. */
+    glassY: number;
   };
   /** Where the head splits into its front and back half. */
   seamY: number;
@@ -251,12 +260,13 @@ export function astronautLayout(values: Params): AstronautLayout {
   const hw = board.minHalfWidth + num(values, "headMarginSide");
   const hh = board.minHalfHeight + num(values, "headMarginTop");
   const depth = num(values, "headDepth");
+  const glassY = WALL + num(values, "screenRecess");
 
-  // The torso sits under the head's middle. The lower volume reaches a quarter of its height
-  // below the base, so the base cut leaves a broad flat foot; the upper one is centred
-  // `upperOffset` above the lower one's top, and the torso is cut flat where the upper one is
-  // 0.4 of its height above its centre, just under its peak.
-  const cy = depth * 0.45;
+  // The torso sits behind the board, under the head's middle at the default depth. The lower
+  // volume reaches a quarter of its height below the base, so the base cut leaves a broad flat
+  // foot; the upper one is centred `upperOffset` above the lower one's top, and the torso is
+  // cut flat where the upper one is 0.4 of its height above its centre, just under its peak.
+  const cy = glassY + BODY_BEHIND_GLASS;
   const volume = (prefix: "lower" | "upper", z0: number, z1: number): Volume => ({
     center: [0, cy - num(values, `${prefix}Forward`), (z0 + z1) / 2],
     half: [num(values, `${prefix}Width`) / 2, num(values, `${prefix}Depth`) / 2, (z1 - z0) / 2],
@@ -302,12 +312,12 @@ export function astronautLayout(values: Params): AstronautLayout {
   const limbRound = (key: string, a: number, b: number) =>
     (num(values, key) / 100) * Math.min(a, b) * 0.5;
 
-  // Board fittings, behind the glass front at y = WALL.
+  // Board fittings, behind the glass front.
   const toFace = (u: number, v: number) => moduleToFace(portrait, u, v);
-  const usb = { x: board.usb[0], y: WALL + (BOARD.usb?.depth ?? 0), z: cz + board.usb[1] };
+  const usb = { x: board.usb[0], y: glassY + (BOARD.usb?.depth ?? 0), z: cz + board.usb[1] };
   const pinHoles = (BOARD.buttons ?? []).map((b) => {
     const [x, z] = toFace(b.at[0], b.at[1]);
-    return { name: b.name, x, y: WALL + b.depth, z: cz + z };
+    return { name: b.name, x, y: glassY + b.depth, z: cz + z };
   });
   const discRadius = num(values, "earSize");
   // The seam goes through the middle of the head, but far enough back that the right disc
@@ -322,12 +332,12 @@ export function astronautLayout(values: Params): AstronautLayout {
       ({ y, dz, r }) => y + Math.sqrt(Math.max((discRadius + r + 1.5) ** 2 - dz * dz, 0)),
     ),
   );
-  // In landscape the neck stands as far back as the front half's bottom allows, over the
-  // torso's middle; in portrait it stands on the plug. The neck ring, centred on the upper
-  // volume, reaches round its socket.
+  // In landscape the neck stands as far back as the front half's bottom allows, but no
+  // further than the torso's middle; in portrait it stands on the plug. The neck ring, centred
+  // on the upper volume, reaches round its socket.
   const neck = portrait
     ? { x: usb.x, y: usb.y, radius: PLUG_NECK_RADIUS }
-    : { x: 0, y: seamY - NECK.radius - 0.5, radius: NECK.radius };
+    : { x: 0, y: Math.min(seamY - NECK.radius - 0.5, cy), radius: NECK.radius };
   const collar = ring
     ? {
         x: 0,
@@ -340,7 +350,7 @@ export function astronautLayout(values: Params): AstronautLayout {
     const [x, z] = toFace(u, v);
     return [x, cz + z];
   });
-  const postTip = WALL + BOARD.thickness;
+  const postTip = glassY + BOARD.thickness;
 
   // Speakers stand side by side on the back wall, long side vertical, centred on the back. The
   // posts sit off-centre with the board's standoffs, but below and above the fences.
@@ -362,6 +372,7 @@ export function astronautLayout(values: Params): AstronautLayout {
       backRadius: (num(values, "headBackRound") / 100) * (depth - RIM),
       glass: board.glass,
       view: board.view,
+      glassY,
     },
     seamY,
     body: {
@@ -440,6 +451,12 @@ export function astronautLayout(values: Params): AstronautLayout {
 /** Rules the shape params can break; each names the param most likely to fix it. */
 export function validateLayout(L: AstronautLayout): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  if (L.head.depth < MIN_HEAD_DEPTH + L.head.glassY - WALL) {
+    issues.push({
+      key: "headDepth",
+      message: `With this screen recess the board, battery, and speakers need a head at least ${(MIN_HEAD_DEPTH + L.head.glassY - WALL).toFixed(1)} mm deep.`,
+    });
+  }
   if (!torsoConnected(L)) {
     issues.push({
       key: "upperOffset",

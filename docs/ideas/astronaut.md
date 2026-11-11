@@ -81,3 +81,9 @@ Portrait, third follow-up (user, 2026-11-11): the ring "doesn't fit the style ye
 - The ring is part of the body's distance function now, blended into the torso over "Neck ring blend" (default 8 mm, 0 to 30).
 - Wider limits: body widths 25 to 140, depths 20 to 120, heights 10 to 120, Forward ±40, upper Offset −60 to 80, Volume blend to 50. Validation, not the limits, reports what does not fit.
 - Not decided: which mount stays. Remove the other one, its param, and its tests when the user picks.
+
+Portrait, fourth follow-up (user, 2026-11-11): the neck ring sticks out in front of the head, and a deeper head did not cover it: the torso sat at 0.45 × head depth, so it followed every depth change, and the head only grows backward anyway, while the ring's front is pinned by the plug 1.2 mm in front of the face (3.7 mm past the head's rounded bottom edge at the default 2.5 mm front edge). Built:
+
+- The body hangs on the board now (17.75 mm behind the glass front, the same place as before at the default 45 mm depth), so head Depth no longer moves it. Designs saved with another head depth shift by 0.45 × the difference; the user's own tuning is the only such data.
+- "Screen recess" (0 to 10 mm, default 0): the front of the head gets thicker around a deeper window, so the face moves forward over the ring while board, plug, neck, and body stay. 4 mm puts the ring's front 2.8 mm behind the face. It takes room behind the board, so the minimum head depth grows with it, and with the ring mount the head also has to reach back over the ring (depth 50 at recess 4).
+- Choice made without the user: a recess rather than a thinner ring. Flattening the ring's front to the face plane would leave 0.45 mm of socket wall.

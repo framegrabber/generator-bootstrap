@@ -108,52 +108,89 @@ describe("astronaut validate", () => {
     expect(issueKeys({ ...twist, upperForward: -3 })).toEqual(["upperForward"]);
     expect(issueKeys({ ...twist, upperDepth: 60, upperForward: -10 })).toEqual([]);
   });
+
+  it("hangs the body on the board, so the head grows backward and forward over it", () => {
+    const layout = (overrides: Params) => astronautLayout(paramsFor(ID, overrides));
+    const base = layout({ screen: "portrait" });
+    // A deeper head leaves the body, plug, and ring where they are.
+    const deep = layout({ screen: "portrait", headDepth: 55 });
+    expect(deep.body).toEqual(base.body);
+    expect(deep.collar).toEqual(base.collar);
+    // A 4 mm screen recess moves the face forward: everything on the board lies 4 mm further
+    // behind it, so the ring's front edge ends 2.8 mm behind the face instead of 1.2 in front.
+    const recessed = layout({ screen: "portrait", screenRecess: 4, headDepth: 49 });
+    expect(recessed.usb.y - base.usb.y).toBeCloseTo(4, 5);
+    expect(recessed.body.cy - base.body.cy).toBeCloseTo(4, 5);
+    expect(recessed.collar!.y - recessed.collar!.radius).toBeCloseTo(2.82, 1);
+    // The recess comes out of the room behind the board (30.5 mm without it), and the ring
+    // then reaches further back, so the head has to be deeper too.
+    expect(
+      issueKeys({ screen: "portrait", screenRecess: 4, headDepth: 50, headBackRound: 15 }),
+    ).toEqual([]);
+    expect(issueKeys({ screenRecess: 4, headDepth: 34.5 })).not.toContain("headDepth");
+    expect(issueKeys({ screenRecess: 4, headDepth: 34 })).toContain("headDepth");
+  });
 });
 
 describe("astronaut fit", () => {
-  it.each(["landscape", "portrait"])(
-    "assembles %s without parts or hardware colliding",
-    { timeout: 60_000 },
-    async (screen) => {
-      const result = await buildWith(ID, draft({ screen }));
-      const L = astronautLayout(paramsFor(ID, draft({ screen })));
-      const wasm = await getManifold();
-      withScope((scope) => {
-        const t = <T extends { delete(): void }>(x: T) => scope.track(x);
-        const placed = result.parts.map(
-          (part) => [part.name, assembledSolid(wasm, scope, part)] as const,
-        );
-        const overlap = (a: Manifold, b: Manifold) => t(a.intersect(b)).volume();
-        for (let i = 0; i < placed.length; i++) {
-          for (let j = i + 1; j < placed.length; j++) {
-            const [[a, sa], [b, sb]] = [placed[i], placed[j]];
-            expect(overlap(sa, sb), `${a} x ${b}`).toBeLessThan(0.5);
-          }
+  it.each<[string, Params]>([
+    ["landscape", {}],
+    ["portrait", { screen: "portrait" }],
+    [
+      "portrait with a recessed screen",
+      { screen: "portrait", screenRecess: 4, headDepth: 50, headBackRound: 15 },
+    ],
+  ])("assembles %s without parts or hardware colliding", { timeout: 60_000 }, async (_, values) => {
+    const result = await buildWith(ID, draft(values));
+    const L = astronautLayout(paramsFor(ID, draft(values)));
+    const wasm = await getManifold();
+    withScope((scope) => {
+      const t = <T extends { delete(): void }>(x: T) => scope.track(x);
+      const placed = result.parts.map(
+        (part) => [part.name, assembledSolid(wasm, scope, part)] as const,
+      );
+      const overlap = (a: Manifold, b: Manifold) => t(a.intersect(b)).volume();
+      for (let i = 0; i < placed.length; i++) {
+        for (let j = i + 1; j < placed.length; j++) {
+          const [[a, sa], [b, sb]] = [placed[i], placed[j]];
+          expect(overlap(sa, sb), `${a} x ${b}`).toBeLessThan(0.5);
         }
-        // The module (glass outline with its R2 corners, from the glass front to the standoff
-        // tips) and the speakers on the back wall fit their spaces.
-        const { glass, cz, depth } = L.head;
-        const outline = t(
-          t(wasm.CrossSection.square([2 * glass.hx - 4, 2 * glass.hz - 4], true)).offset(
-            2,
-            "Round",
-            2,
-            32,
-          ),
-        );
-        const module = t(
-          t(t(outline.extrude(10)).rotate([-90, 0, 0])).translate([glass.cx, WALL, cz + glass.cz]),
-        );
-        const speakers = L.speakers.map((s) =>
-          t(t(wasm.Manifold.cube([20, 5.5, 30], true)).translate([s.x, depth - WALL - 2.75, s.z])),
-        );
-        const halves = placed.filter(([name]) => name.startsWith("head-")).map(([, s]) => s);
-        const head = t(wasm.Manifold.union(halves));
-        expect(overlap(head, module), "module").toBeLessThan(0.5);
-        for (const s of speakers) expect(overlap(head, s), "speaker").toBeLessThan(0.5);
-      });
-    },
-  );
+      }
+      // The module (glass outline with its R2 corners, from the glass front to the standoff
+      // tips) and the speakers on the back wall fit their spaces.
+      const { glass, view, glassY, cz, depth } = L.head;
+      const outline = t(
+        t(wasm.CrossSection.square([2 * glass.hx - 4, 2 * glass.hz - 4], true)).offset(
+          2,
+          "Round",
+          2,
+          32,
+        ),
+      );
+      const module = t(
+        t(t(outline.extrude(10)).rotate([-90, 0, 0])).translate([glass.cx, glassY, cz + glass.cz]),
+      );
+      const speakers = L.speakers.map((s) =>
+        t(t(wasm.Manifold.cube([20, 5.5, 30], true)).translate([s.x, depth - WALL - 2.75, s.z])),
+      );
+      const halves = placed.filter(([name]) => name.startsWith("head-")).map(([, s]) => s);
+      const head = t(wasm.Manifold.union(halves));
+      expect(overlap(head, module), "module").toBeLessThan(0.5);
+      for (const s of speakers) expect(overlap(head, s), "speaker").toBeLessThan(0.5);
+      // The glass rests on solid front all round the window, recessed or not. (The rotation
+      // onto the face flips the outline's y, so the strip is drawn mirrored.)
+      const strip = t(
+        t(
+          t(
+            t(outline.translate([glass.cx, -glass.cz])).subtract(
+              t(wasm.CrossSection.square([2 * view.hx + 3, 2 * view.hz + 3], true)),
+            ),
+          ).extrude(glassY - 0.6),
+        ).rotate([-90, 0, 0]),
+      ).translate([0, 0.5, cz]);
+      expect(overlap(head, t(strip)) / strip.volume(), "front").toBeGreaterThan(0.98);
+    });
+  });
 
   it("centres the speaker grilles on the back", { timeout: 30_000 }, async () => {
     const result = await buildWith(ID, draft());
